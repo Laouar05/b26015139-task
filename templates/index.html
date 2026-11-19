@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>任务管理器</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+  <main class="container">
+    <header class="app-header">
+      <h1>✅ 任务管理器</h1>
+      <p class="subtitle">一个简单的全栈示例 · Flask + SQLite + 原生 JavaScript</p>
+    </header>
+
+    <section class="card add-card">
+      <form id="task-form" autocomplete="off">
+        <input
+          type="text"
+          id="title-input"
+          class="input"
+          placeholder="需要做什么？"
+          maxlength="200"
+          required
+        />
+        <textarea
+          id="desc-input"
+          class="input textarea"
+          placeholder="描述（可选）"
+          rows="2"
+        ></textarea>
+        <button type="submit" class="btn btn-primary">添加任务</button>
+      </form>
+    </section>
+
+    <nav class="filters">
+      <button class="filter-btn is-active" data-filter="all">全部</button>
+      <button class="filter-btn" data-filter="active">进行中</button>
+      <button class="filter-btn" data-filter="completed">已完成</button>
+      <span id="task-count" class="task-count"></span>
+    </nav>
+
+    <section>
+      <ul id="task-list" class="task-list"></ul>
+      <p id="empty-state" class="empty-state">还没有任务，先在上方添加一个吧 🎉</p>
+    </section>
+  </main>
+
+  <div id="edit-modal" class="modal-overlay is-hidden">
+    <div class="modal">
+      <h2>编辑任务</h2>
+      <input type="text" id="edit-title" class="input" maxlength="200" />
+      <textarea id="edit-desc" class="input textarea" rows="3"></textarea>
+      <div class="modal-actions">
+        <button id="edit-cancel" class="btn btn-secondary">取消</button>
+        <button id="edit-save" class="btn btn-primary">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
