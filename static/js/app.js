@@ -12,6 +12,7 @@ const descInput = document.getElementById("desc-input");
 const taskList = document.getElementById("task-list");
 const emptyState = document.getElementById("empty-state");
 const taskCount = document.getElementById("task-count");
+const progressFill = document.getElementById("progress-fill");
 const filterButtons = document.querySelectorAll(".filter-btn");
 
 const editModal = document.getElementById("edit-modal");
@@ -439,6 +440,7 @@ async function updateCount(tasks) {
   const total = all.length;
   const done = all.filter((t) => t.completed).length;
   taskCount.textContent = total ? `已完成 ${done} / 共 ${total}` : "";
+  progressFill.style.width = total ? `${Math.round((done / total) * 100)}%` : "0%";
 }
 
 /* ---------- 操作 ---------- */
