@@ -38,6 +38,16 @@ task/
 
 ## 快速开始
 
+### Windows 一键启动
+
+安装 Python 3 后，双击项目根目录的 `start.bat`，或在 PowerShell 中运行 `.\start.bat`。
+脚本会创建或复用 `.venv`，安装项目依赖并启动 Flask。首次安装依赖通常需要联网。
+
+看到 Flask 的启动日志后，打开 [http://127.0.0.1:5000](http://127.0.0.1:5000)。
+保持启动窗口开启；需要停止服务时按 `Ctrl+C`。
+
+### 手动启动（Windows / macOS / Linux）
+
 1. **创建并激活虚拟环境**（推荐）：
 
    ```bash
