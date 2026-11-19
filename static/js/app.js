@@ -255,6 +255,114 @@ breakdownGoal.addEventListener("input", () => {
   }
 });
 
+/* ---------- AI 聊天 ---------- */
+const chatDialog = document.getElementById("chat-dialog");
+const chatHeading = document.getElementById("chat-heading");
+const chatNote = document.getElementById("chat-note");
+const chatEmpty = document.getElementById("chat-empty");
+const chatLog = document.getElementById("chat-log");
+const chatForm = document.getElementById("chat-form");
+const chatInput = document.getElementById("chat-input");
+const chatSend = document.getElementById("chat-send");
+const chatReset = document.getElementById("chat-reset");
+const chatThreads = new Map();
+const chatHistoryLimit = 16;
+let activeChat = null;
+
+function chatMessage(role, content) {
+  const item = document.createElement("li");
+  item.className = `chat-message chat-${role}`;
+  const label = document.createElement("strong");
+  label.textContent = role === "user" ? "你" : "AI";
+  const text = document.createElement("p");
+  text.textContent = content;
+  item.append(label, text);
+  return item;
+}
+
+function renderChat(thread) {
+  const messages = thread.messages.slice();
+  if (thread.pending) messages.push({ role: "user", content: thread.draft });
+  chatLog.replaceChildren(...messages.map(({ role, content }) => chatMessage(role, content)));
+  chatLog.hidden = !messages.length;
+  chatEmpty.hidden = !!messages.length;
+  chatLog.scrollTop = chatLog.scrollHeight;
+  chatInput.value = thread.pending ? "" : thread.draft;
+  chatInput.readOnly = thread.pending;
+  chatSend.disabled = thread.pending;
+  chatReset.disabled = thread.pending || (!thread.messages.length && !thread.draft);
+  chatSend.textContent = thread.pending ? "等待回复…" : "发送";
+  const status = document.getElementById("chat-status");
+  status.textContent = thread.pending ? "AI 正在回复…" : thread.error;
+  status.classList.toggle("is-error", !!thread.error);
+}
+
+function openChat(task = null) {
+  const taskId = task?.id ?? null;
+  if (!chatThreads.has(taskId)) {
+    chatThreads.set(taskId, { taskId, messages: [], draft: "", pending: false, error: "" });
+  }
+  activeChat = chatThreads.get(taskId);
+  chatHeading.textContent = task ? `聊这个计划：${task.title}` : "AI 聊天";
+  chatNote.textContent = task
+    ? "发送时会把近期对话和此计划的标题、描述及完成状态发给模型；不会更改任务。"
+    : "发送时只把近期对话发给配置的模型，不会自动读取任务。";
+  chatEmpty.textContent = task
+    ? "可以问：从哪里开始？有什么风险？怎样判断做到位了？"
+    : "随便聊聊，或说说你正在考虑的安排。";
+  renderChat(activeChat);
+  chatDialog.showModal();
+  chatLog.scrollTop = chatLog.scrollHeight;
+  chatInput.focus();
+}
+
+chatInput.addEventListener("input", () => {
+  activeChat.draft = chatInput.value;
+  chatReset.disabled = !activeChat.messages.length && !activeChat.draft;
+});
+
+chatForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const thread = activeChat;
+  const content = chatInput.value.trim();
+  if (!thread || thread.pending || !content) return;
+  const userMessage = { role: "user", content };
+  thread.draft = content;
+  thread.pending = true;
+  thread.error = "";
+  renderChat(thread);
+  try {
+    const { reply } = await request("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ task_id: thread.taskId, messages: [...thread.messages, userMessage] }),
+    });
+    if (typeof reply !== "string" || !reply.trim()) throw new Error("没有收到有效回复，请重试。");
+    thread.messages = [...thread.messages, userMessage, { role: "assistant", content: reply }]
+      .slice(-chatHistoryLimit);
+    thread.draft = "";
+  } catch (err) {
+    thread.error = err.message;
+  } finally {
+    thread.pending = false;
+    if (chatDialog.open && activeChat === thread) {
+      renderChat(thread);
+      if (document.activeElement === chatDialog || document.activeElement === document.body) chatInput.focus();
+    }
+  }
+});
+
+chatReset.addEventListener("click", () => {
+  if (!activeChat || activeChat.pending) return;
+  activeChat.messages = [];
+  activeChat.error = "";
+  activeChat.draft = "";
+  renderChat(activeChat);
+  chatInput.focus();
+});
+document.getElementById("chat-open").addEventListener("click", () => openChat());
+document.getElementById("chat-close").addEventListener("click", () => chatDialog.close());
+
 /* ---------- 数据加载 ---------- */
 async function changeFilter(filter) {
   currentFilter = filter;
@@ -305,11 +413,13 @@ function buildTaskItem(task) {
       <div class="task-meta">创建于 ${formatDate(task.created_at)}</div>
     </div>
     <div class="task-actions">
+      <button type="button" class="icon-btn task-chat-btn" title="围绕此任务聊天">聊计划</button>
       <button class="icon-btn edit-btn" title="编辑">✏️</button>
       <button class="icon-btn danger delete-btn" title="删除">🗑️</button>
     </div>
   `;
 
+  li.querySelector(".task-chat-btn").addEventListener("click", () => openChat(task));
   li.querySelector(".task-check").addEventListener("change", () => toggleTask(task.id));
   li.querySelector(".edit-btn").addEventListener("click", () => openEditModal(task));
   li.querySelector(".delete-btn").addEventListener("click", () => deleteTask(task.id));
@@ -369,6 +479,11 @@ async function deleteTask(id) {
   if (!confirm("确定要删除这个任务吗？")) return;
   try {
     await request(`${API_URL}/${id}`, { method: "DELETE" });
+    if (activeChat?.taskId === id) {
+      chatDialog.close();
+      activeChat = null;
+    }
+    chatThreads.delete(id);
     showToast("任务已删除", "success");
     loadTasks();
   } catch (err) {

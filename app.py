@@ -5,8 +5,28 @@ from flask import Flask, render_template, request, jsonify
 from sqlalchemy import select
 
 from config import Config
-from llm import LLMError, decompose_task, recommend_tasks, validate_task_batch
+from llm import LLMError, chat_reply, decompose_task, recommend_tasks, validate_task_batch
 from models import db, Task
+
+
+def validate_chat_messages(entries):
+    if not isinstance(entries, list) or not 1 <= len(entries) <= 17 or len(entries) % 2 == 0:
+        raise ValueError("请提供当前消息和最多 8 轮历史对话。")
+    messages = []
+    for index, entry in enumerate(entries):
+        role, limit = ("user", 2000) if index % 2 == 0 else ("assistant", 4000)
+        if not isinstance(entry, dict) or entry.get("role") != role:
+            raise ValueError("对话消息须按用户和 AI 的顺序交替排列。")
+        content = entry.get("content")
+        if not isinstance(content, str) or not 1 <= len(content.strip()) <= limit:
+            raise ValueError(f"第 {index + 1} 条消息须为 1 至 {limit} 个字符。")
+        content = content.strip()
+        try:
+            content.encode("utf-8")
+        except UnicodeError as exc:
+            raise ValueError("聊天消息含有无效字符。") from exc
+        messages.append({"role": role, "content": content})
+    return messages
 
 
 def create_app():
@@ -29,6 +49,45 @@ def _register_routes(app):
     @app.route("/")
     def index():
         return render_template("index.html")
+
+    @app.post("/api/chat")
+    def chat():
+        if not request.is_json:
+            return jsonify({"error": "请输入有效的 JSON 对象。"}), 400
+        limit = 768 * 1024
+        raw = request.stream.read(limit + 1)
+        if len(raw) > limit:
+            return jsonify({"error": "对话请求过长。"}), 413
+        try:
+            data = app.json.loads(raw)
+        except (ValueError, RecursionError):
+            return jsonify({"error": "请输入有效的 JSON 对象。"}), 400
+        if not isinstance(data, dict):
+            return jsonify({"error": "请输入有效的 JSON 对象。"}), 400
+        try:
+            messages = validate_chat_messages(data.get("messages"))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        task_id = data.get("task_id")
+        context = None
+        if task_id is not None:
+            if type(task_id) is not int or not 0 < task_id <= 2**63 - 1:
+                return jsonify({"error": "计划 ID 无效。"}), 400
+            task = db.session.get(Task, task_id)
+            if task is None:
+                return jsonify({"error": "计划不存在或已删除。"}), 404
+            context = {
+                "title": task.title,
+                "description": (task.description or "")[:4000],
+                "completed": task.completed,
+            }
+            db.session.remove()
+        try:
+            reply = chat_reply(app.config, messages, context)
+        except LLMError as exc:
+            return jsonify({"error": str(exc)}), exc.status
+        return jsonify({"reply": reply})
 
     # ---- Task API --------------------------------------------------------
 

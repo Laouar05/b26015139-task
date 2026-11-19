@@ -11,6 +11,7 @@
     <header class="app-header">
       <h1>✅ 任务管理器</h1>
       <p class="subtitle">一个简单的全栈示例 · Flask + SQLite + 原生 JavaScript</p>
+      <button type="button" id="chat-open" class="btn btn-secondary">AI 聊天</button>
     </header>
 
     <section class="card add-card">
@@ -86,6 +87,25 @@
       </div>
     </div>
   </div>
+
+  <dialog id="chat-dialog" class="chat-dialog" aria-labelledby="chat-heading">
+    <header class="chat-header">
+      <h2 id="chat-heading">AI 聊天</h2>
+      <button type="button" id="chat-close" class="btn btn-secondary">关闭</button>
+    </header>
+    <p id="chat-note" class="recommend-note"></p>
+    <p id="chat-empty" class="recommend-note"></p>
+    <ol id="chat-log" class="chat-log" role="log" aria-label="对话记录" tabindex="0"></ol>
+    <form id="chat-form">
+      <label for="chat-input">你的消息</label>
+      <textarea id="chat-input" class="input textarea" rows="3" maxlength="2000" required></textarea>
+      <p id="chat-status" class="recommend-status" role="status"></p>
+      <div class="chat-actions">
+        <button type="submit" id="chat-send" class="btn btn-primary">发送</button>
+        <button type="button" id="chat-reset" class="btn btn-secondary">清空对话</button>
+      </div>
+    </form>
+  </dialog>
 
   <div id="toast" class="toast"></div>
 
