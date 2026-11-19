@@ -33,6 +33,22 @@
       </form>
     </section>
 
+    <section class="card recommend-card" aria-labelledby="breakdown-heading">
+      <h2 id="breakdown-heading">AI 分解任务</h2>
+      <form id="breakdown-form">
+        <label for="breakdown-goal">你想完成什么？</label>
+        <textarea id="breakdown-goal" class="input textarea" maxlength="2000" rows="3" required
+          placeholder="例如：两周内完成实习汇报，准备演示文稿并至少彩排一次"></textarea>
+        <p class="recommend-note">仅将此处输入发送给配置的模型服务。生成后可修改或移除草稿，确认后才加入列表。</p>
+        <button type="submit" id="breakdown-generate" class="btn btn-primary">生成子任务</button>
+      </form>
+      <p id="breakdown-status" class="recommend-status" role="status"></p>
+      <form id="breakdown-save-form" hidden>
+        <ol id="breakdown-results" class="recommend-results" aria-label="子任务草稿"></ol>
+        <button type="submit" id="breakdown-save" class="btn btn-primary">批量加入任务列表</button>
+      </form>
+    </section>
+
     <section class="card recommend-card" aria-labelledby="recommend-heading">
       <h2 id="recommend-heading">今天先做什么？</h2>
       <form id="recommend-form">

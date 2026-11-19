@@ -89,6 +89,8 @@ body {
 .recommend-result h3 { font-size: 1rem; }
 .recommend-result a { color: #c7d2fe; text-underline-offset: 3px; }
 .recommend-result p { margin-top: 6px; font-size: 0.9rem; line-height: 1.5; }
+#breakdown-results label .input { display: block; margin-top: 6px; }
+#breakdown-save { margin-top: 16px; }
 .task-item:focus { outline: 2px solid #a5b4fc; outline-offset: 2px; }
 
 /* ---------- Filters ---------- */

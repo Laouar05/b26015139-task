@@ -5,7 +5,7 @@ from flask import Flask, render_template, request, jsonify
 from sqlalchemy import select
 
 from config import Config
-from llm import RecommendationError, recommend_tasks
+from llm import LLMError, decompose_task, recommend_tasks, validate_task_batch
 from models import db, Task
 
 
@@ -57,9 +57,38 @@ def _register_routes(app):
             recommendations = recommend_tasks(
                 app.config, tasks, context.strip(), datetime.now().astimezone().isoformat(timespec="minutes")
             )
-        except RecommendationError as exc:
+        except LLMError as exc:
             return jsonify({"error": str(exc)}), exc.status
         return jsonify({"recommendations": recommendations})
+
+    @app.post("/api/tasks/decompose")
+    def draft_tasks():
+        data = request.get_json(silent=True)
+        goal = data.get("goal") if isinstance(data, dict) else None
+        if not isinstance(goal, str) or not 1 <= len(goal.strip()) <= 2000:
+            return jsonify({"error": "请输入大任务目标（1 至 2000 个字符）。"}), 400
+        try:
+            goal = goal.strip()
+            goal.encode("utf-8")
+            tasks = decompose_task(app.config, goal)
+        except UnicodeError:
+            return jsonify({"error": "大任务目标含有无效字符。"}), 400
+        except LLMError as exc:
+            return jsonify({"error": str(exc)}), exc.status
+        return jsonify({"tasks": tasks})
+
+    @app.post("/api/tasks/batch")
+    def create_tasks():
+        data = request.get_json(silent=True)
+        try:
+            entries = validate_task_batch(data.get("tasks") if isinstance(data, dict) else None)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        tasks = [Task(**entry) for entry in entries]
+        db.session.add_all(reversed(tasks))
+        db.session.commit()
+        return jsonify({"tasks": [task.to_dict() for task in tasks]}), 201
 
     @app.route("/api/tasks", methods=["GET"])
     def list_tasks():
@@ -70,7 +99,7 @@ def _register_routes(app):
             stmt = stmt.where(Task.completed.is_(False))
         elif status == "completed":
             stmt = stmt.where(Task.completed.is_(True))
-        stmt = stmt.order_by(Task.created_at.desc())
+        stmt = stmt.order_by(Task.created_at.desc(), Task.id.desc())
         tasks = db.session.scalars(stmt).all()
         return jsonify([t.to_dict() for t in tasks])
 

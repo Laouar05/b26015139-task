@@ -122,6 +122,139 @@ async function jumpToTask(id) {
   item.scrollIntoView({ block: "center" });
 }
 
+/* ---------- AI 分解任务 ---------- */
+const breakdownForm = document.getElementById("breakdown-form");
+const breakdownGoal = document.getElementById("breakdown-goal");
+const breakdownGenerate = document.getElementById("breakdown-generate");
+const breakdownStatus = document.getElementById("breakdown-status");
+const breakdownSaveForm = document.getElementById("breakdown-save-form");
+const breakdownSave = document.getElementById("breakdown-save");
+const breakdownResults = document.getElementById("breakdown-results");
+let draftGoal = null;
+let breakdownBusy = false;
+
+function setBreakdownStatus(message, isError = false) {
+  breakdownStatus.textContent = message;
+  breakdownStatus.classList.toggle("is-error", isError);
+}
+
+function updateBreakdownControls() {
+  const count = breakdownResults.children.length;
+  breakdownSaveForm.hidden = !count;
+  breakdownGenerate.disabled = breakdownBusy;
+  breakdownGoal.readOnly = breakdownBusy;
+  for (const field of breakdownSaveForm.elements) field.disabled = breakdownBusy;
+  breakdownSave.disabled = breakdownBusy || !count || breakdownGoal.value.trim() !== draftGoal;
+}
+
+function buildTaskDraft(task, index) {
+  const item = document.createElement("li");
+  item.className = "recommend-result";
+  const titleLabel = document.createElement("label");
+  titleLabel.textContent = `任务 ${index + 1} · 标题`;
+  const title = document.createElement("input");
+  title.className = "input";
+  title.name = "title";
+  title.maxLength = 200;
+  title.required = true;
+  title.value = task.title;
+  titleLabel.append(title);
+  const descriptionLabel = document.createElement("label");
+  descriptionLabel.textContent = "描述（选填）";
+  const description = document.createElement("textarea");
+  description.className = "input textarea";
+  description.name = "description";
+  description.rows = 2;
+  description.maxLength = 1000;
+  description.value = task.description;
+  descriptionLabel.append(description);
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "btn btn-secondary";
+  remove.textContent = "移除此项";
+  remove.setAttribute("aria-label", `移除任务 ${index + 1}`);
+  remove.addEventListener("click", () => {
+    const next = item.nextElementSibling || item.previousElementSibling;
+    item.remove();
+    updateBreakdownControls();
+    if (!breakdownResults.children.length) {
+      draftGoal = null;
+      setBreakdownStatus("草稿已清空，可以重新生成。");
+    }
+    (next?.querySelector("input") || breakdownGoal).focus();
+  });
+  item.append(titleLabel, descriptionLabel, remove);
+  return item;
+}
+
+async function generateTaskDrafts(event) {
+  event.preventDefault();
+  if (breakdownBusy) return;
+  const goal = breakdownGoal.value.trim();
+  if (!goal) {
+    setBreakdownStatus("请输入大任务目标。", true);
+    return;
+  }
+  breakdownBusy = true;
+  updateBreakdownControls();
+  setBreakdownStatus("正在分解任务…");
+  try {
+    const { tasks } = await request(`${API_URL}/decompose`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ goal }),
+    });
+    breakdownResults.replaceChildren(...tasks.map(buildTaskDraft));
+    draftGoal = goal;
+    setBreakdownStatus("草稿已生成，可以修改或移除，再批量加入。");
+  } catch (err) {
+    setBreakdownStatus(err.message, true);
+  } finally {
+    breakdownBusy = false;
+    updateBreakdownControls();
+  }
+}
+
+async function saveTaskDrafts(event) {
+  event.preventDefault();
+  if (breakdownSave.disabled) return;
+  const tasks = Array.from(breakdownResults.children, (item) => ({
+    title: item.querySelector("input").value.trim(),
+    description: item.querySelector("textarea").value.trim(),
+  }));
+  breakdownBusy = true;
+  updateBreakdownControls();
+  setBreakdownStatus("正在保存任务…");
+  try {
+    const result = await request(`${API_URL}/batch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tasks }),
+    });
+    breakdownResults.replaceChildren();
+    breakdownGoal.value = "";
+    draftGoal = null;
+    setBreakdownStatus(`已加入 ${result.tasks.length} 项任务。`);
+    if (currentFilter === "completed") await changeFilter("active");
+    else await loadTasks();
+  } catch (err) {
+    setBreakdownStatus(err.message, true);
+  } finally {
+    breakdownBusy = false;
+    updateBreakdownControls();
+    if (draftGoal === null) breakdownGoal.focus();
+  }
+}
+
+breakdownForm.addEventListener("submit", generateTaskDrafts);
+breakdownSaveForm.addEventListener("submit", saveTaskDrafts);
+breakdownGoal.addEventListener("input", () => {
+  updateBreakdownControls();
+  if (draftGoal !== null) {
+    setBreakdownStatus(breakdownSave.disabled ? "目标已修改，请重新生成子任务。" : "可以继续编辑或保存草稿。");
+  }
+});
+
 /* ---------- 数据加载 ---------- */
 async function changeFilter(filter) {
   currentFilter = filter;
