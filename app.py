@@ -1,8 +1,11 @@
 """Flask application entry point and REST API for the Task Manager."""
+from datetime import datetime
+
 from flask import Flask, render_template, request, jsonify
 from sqlalchemy import select
 
 from config import Config
+from llm import RecommendationError, recommend_tasks
 from models import db, Task
 
 
@@ -28,6 +31,35 @@ def _register_routes(app):
         return render_template("index.html")
 
     # ---- Task API --------------------------------------------------------
+
+    @app.post("/api/recommendations/today")
+    def today_recommendations():
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({"error": "请输入有效的 JSON 对象。"}), 400
+        context = data.get("context", "")
+        if not isinstance(context, str) or len(context.strip()) > 300:
+            return jsonify({"error": "今天的安排最多填写 300 个字符。"}), 400
+
+        stmt = (
+            select(Task.id, Task.title, Task.description)
+            .where(Task.completed.is_(False))
+            .order_by(Task.created_at.desc(), Task.id.desc())
+        )
+        tasks = [
+            {"id": task_id, "title": title, "description": (description or "")[:1000]}
+            for task_id, title, description in db.session.execute(stmt)
+        ]
+        if not tasks:
+            return jsonify({"recommendations": []})
+
+        try:
+            recommendations = recommend_tasks(
+                app.config, tasks, context.strip(), datetime.now().astimezone().isoformat(timespec="minutes")
+            )
+        except RecommendationError as exc:
+            return jsonify({"error": str(exc)}), exc.status
+        return jsonify({"recommendations": recommendations})
 
     @app.route("/api/tasks", methods=["GET"])
     def list_tasks():

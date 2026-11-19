@@ -55,12 +55,88 @@ async function request(url, options = {}) {
   return data;
 }
 
+const RECOMMEND_URL = "/api/recommendations/today";
+
+const recommendForm = document.getElementById("recommend-form");
+const recommendContext = document.getElementById("recommend-context");
+const recommendSubmit = document.getElementById("recommend-submit");
+const recommendStatus = document.getElementById("recommend-status");
+const recommendResults = document.getElementById("recommend-results");
+
+/* ---------- 任务推荐 ---------- */
+async function generateRecommendations(event) {
+  event.preventDefault();
+  if (recommendSubmit.disabled) return;
+  recommendSubmit.disabled = true;
+  recommendSubmit.textContent = "正在生成…";
+  recommendStatus.textContent = "正在分析未完成任务…";
+  recommendStatus.classList.remove("is-error");
+  recommendResults.replaceChildren();
+  try {
+    const { recommendations } = await request(RECOMMEND_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ context: recommendContext.value.trim() }),
+    });
+    recommendStatus.textContent = recommendations.length ? "建议已生成。" : "没有未完成的任务。";
+    recommendations.forEach((item, index) => {
+      const result = document.createElement("li");
+      result.className = "recommend-result";
+      const heading = document.createElement("h3");
+      const link = document.createElement("a");
+      link.href = `#task-${item.task_id}`;
+      link.textContent = item.title;
+      link.addEventListener("click", async (event) => {
+        event.preventDefault();
+        await jumpToTask(item.task_id);
+      });
+      heading.append(index === 0 ? "先做 · " : "接着做 · ", link);
+      const reason = document.createElement("p");
+      reason.textContent = item.reason;
+      const firstStep = document.createElement("p");
+      firstStep.textContent = `第一步 · ${item.first_step}`;
+      result.append(heading, reason, firstStep);
+      recommendResults.appendChild(result);
+    });
+  } catch (err) {
+    recommendStatus.textContent = err.message;
+    recommendStatus.classList.add("is-error");
+  } finally {
+    recommendSubmit.disabled = false;
+    recommendSubmit.textContent = "生成建议";
+  }
+}
+
+async function jumpToTask(id) {
+  const itemId = `task-${id}`;
+  let item = document.getElementById(itemId);
+  if (!item && currentFilter !== "all") {
+    await changeFilter("all");
+    item = document.getElementById(itemId);
+  }
+  if (!item) {
+    showToast("任务不在列表中，请刷新建议。", "error");
+    return;
+  }
+  item.focus({ preventScroll: true });
+  item.scrollIntoView({ block: "center" });
+}
+
 /* ---------- 数据加载 ---------- */
+async function changeFilter(filter) {
+  currentFilter = filter;
+  filterButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.filter === filter));
+  await loadTasks();
+}
+let taskLoadVersion = 0;
+
 async function loadTasks() {
+  const version = ++taskLoadVersion;
   try {
     const tasks = await request(`${API_URL}?status=${currentFilter}`);
-    renderTasks(tasks);
+    if (version === taskLoadVersion) renderTasks(tasks);
   } catch (err) {
+    if (version !== taskLoadVersion) return;
     showToast("加载任务失败：" + err.message, "error");
     renderTasks([]);
   }
@@ -85,6 +161,8 @@ function buildTaskItem(task) {
   const li = document.createElement("li");
   li.className = "task-item" + (task.completed ? " is-completed" : "");
   li.dataset.id = task.id;
+  li.id = `task-${task.id}`;
+  li.tabIndex = -1;
 
   li.innerHTML = `
     <input type="checkbox" class="task-check" ${task.completed ? "checked" : ""} />
@@ -200,14 +278,10 @@ async function saveEdit() {
 
 /* ---------- 事件绑定 ---------- */
 taskForm.addEventListener("submit", addTask);
+recommendForm.addEventListener("submit", generateRecommendations);
 
 filterButtons.forEach((btn) => {
-  btn.addEventListener("click", () => {
-    filterButtons.forEach((b) => b.classList.remove("is-active"));
-    btn.classList.add("is-active");
-    currentFilter = btn.dataset.filter;
-    loadTasks();
-  });
+  btn.addEventListener("click", () => changeFilter(btn.dataset.filter));
 });
 
 editSave.addEventListener("click", saveEdit);

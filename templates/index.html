@@ -33,6 +33,19 @@
       </form>
     </section>
 
+    <section class="card recommend-card" aria-labelledby="recommend-heading">
+      <h2 id="recommend-heading">今天先做什么？</h2>
+      <form id="recommend-form">
+        <label for="recommend-context">今天的安排（选填）</label>
+        <input type="text" id="recommend-context" class="input" maxlength="300"
+          placeholder="例如：我现在只有 30 分钟" />
+        <p class="recommend-note">生成时会将未完成任务的标题、描述和你填写的安排发送给配置的模型服务。</p>
+        <button type="submit" id="recommend-submit" class="btn btn-primary">生成建议</button>
+      </form>
+      <p id="recommend-status" class="recommend-status" role="status"></p>
+      <ol id="recommend-results" class="recommend-results" aria-label="任务推荐顺序"></ol>
+    </section>
+
     <nav class="filters">
       <button class="filter-btn is-active" data-filter="all">全部</button>
       <button class="filter-btn" data-filter="active">进行中</button>

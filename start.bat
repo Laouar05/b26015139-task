@@ -1,9 +1,11 @@
 @echo off
 setlocal
+rem Use UTF-8 for the Chinese messages below.
+chcp 65001 >nul
 cd /d "%~dp0" || goto directory_error
 
 if not exist ".venv\Scripts\python.exe" (
-    echo Creating the virtual environment...
+    echo 正在创建 Python 虚拟环境……
     py -3 --version >nul 2>&1
     if errorlevel 1 (
         python --version >nul 2>&1 || goto python_missing
@@ -13,33 +15,32 @@ if not exist ".venv\Scripts\python.exe" (
     )
 )
 
-echo Checking project dependencies...
-".venv\Scripts\python.exe" -m pip --disable-pip-version-check install -r requirements.txt || goto install_error
+echo 正在检查项目依赖……
+".venv\Scripts\python.exe" -m pip --quiet --disable-pip-version-check install -r requirements.txt || goto install_error
 
-echo Starting Task Manager at http://127.0.0.1:5000
-echo Press Ctrl+C to stop the server.
-".venv\Scripts\python.exe" app.py || goto app_error
+".venv\Scripts\python.exe" -X utf8 launch.py || goto app_error
 exit /b 0
 
 :directory_error
-echo ERROR: Could not open the project directory.
+echo 错误：无法打开项目目录。
 goto failed
 
 :python_missing
-echo ERROR: Install Python 3 and make it available as py or python.
+echo 错误：请安装 Python 3，并确保可以使用 py 或 python 命令。
 goto failed
 
 :venv_error
-echo ERROR: Could not create the virtual environment.
+echo 错误：无法创建 Python 虚拟环境。
 goto failed
 
 :install_error
-echo ERROR: Could not install project dependencies.
+echo 错误：无法安装项目依赖。
 goto failed
 
 :app_error
-echo ERROR: The application exited with an error. See the output above.
+echo 错误：应用运行失败，请查看上方日志。
 
 :failed
-pause
+echo 按任意键关闭窗口……
+pause >nul
 exit /b 1

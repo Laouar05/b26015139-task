@@ -74,6 +74,23 @@ body {
 .btn-secondary { background: var(--card-2); color: var(--text); }
 .btn-secondary:hover { background: var(--border); }
 
+/* ---------- Recommendations ---------- */
+.recommend-card { margin-bottom: 20px; }
+.recommend-card h2 { font-size: 1.15rem; margin-bottom: 12px; }
+.recommend-card label { display: block; font-size: 0.9rem; margin-bottom: 6px; }
+.recommend-card .input { margin-bottom: 6px; }
+.recommend-note, .recommend-status { color: var(--muted); font-size: 0.85rem; line-height: 1.5; }
+.recommend-note { margin-bottom: 12px; }
+.recommend-status:not(:empty) { margin-top: 12px; }
+.recommend-status.is-error { color: #fca5a5; }
+.recommend-card button:disabled { opacity: 0.65; cursor: wait; }
+.recommend-results { list-style: none; }
+.recommend-result { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 12px; overflow-wrap: anywhere; }
+.recommend-result h3 { font-size: 1rem; }
+.recommend-result a { color: #c7d2fe; text-underline-offset: 3px; }
+.recommend-result p { margin-top: 6px; font-size: 0.9rem; line-height: 1.5; }
+.task-item:focus { outline: 2px solid #a5b4fc; outline-offset: 2px; }
+
 /* ---------- Filters ---------- */
 .filters {
   display: flex;
