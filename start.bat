@@ -18,7 +18,7 @@ if not exist ".venv\Scripts\python.exe" (
 echo 正在检查项目依赖……
 ".venv\Scripts\python.exe" -m pip --quiet --disable-pip-version-check install -r requirements.txt || goto install_error
 
-".venv\Scripts\python.exe" -X utf8 launch.py || goto app_error
+".venv\Scripts\python.exe" -X utf8 launch.py %* || goto app_error
 exit /b 0
 
 :directory_error

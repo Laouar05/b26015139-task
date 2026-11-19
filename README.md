@@ -81,11 +81,11 @@ task/
 
 在任务页填写今天的安排（选填），点击「生成建议」。结果会给出首选任务、最多两件后续任务，以及每件任务的推荐理由和第一步。点击建议里的标题可以定位到原任务。
 
-双击 `start.bat`，看到「是否为本次运行配置 AI？」时，输入 `y` 或「是」，再填写 API 基础地址和 API 密钥。API 地址默认使用 DeepSeek，直接按回车即可采用默认地址。密钥输入时会显示星号。
+首次双击 `start.bat`，在「是否配置 AI？」处输入 `y` 或「是」，再填写 API 基础地址和 API 密钥。地址默认使用 DeepSeek，密钥输入时会显示星号。启动器会通过 `/models` 获取模型列表；可以选编号，也可以输入 `M` 手动填写模型 ID。获取失败时可以手动填写。
 
-启动窗口会请求 API 基础地址下的 `/models` 接口，并列出服务返回的模型。输入编号选择模型，也可输入 `M` 手动填写模型 ID。如果无法获取列表，窗口会直接提示手动填写。配置仅本次运行有效。在首个提示或模型列表处按回车即可跳过 AI 配置。
+配置完成后，在保存提示处按回车或输入 `y`，以后双击启动会自动读取，不再询问。Windows 下配置保存在 `%LOCALAPPDATA%\TaskManager\llm.json`；其他系统使用 `$XDG_CONFIG_HOME/TaskManager/llm.json`，未设置时使用 `~/.config/TaskManager/llm.json`。**密钥以明文保存在当前用户目录，不在项目仓库中。** 不想留存密钥时输入 `n`，仅本次使用新配置。
 
-如果已经通过环境变量设置了 `LLM_BASE_URL`、`LLM_MODEL` 和 `LLM_API_KEY`，启动脚本会沿用这些设置并跳过提示。手动运行 `python app.py` 时也可通过这三个变量配置。
+要更换配置，在项目目录的 PowerShell 中运行 `.\start.bat --configure-ai`；完成并保存后会替换旧配置，也可以删除本地配置文件后重新启动。如果同时设置了 `LLM_BASE_URL`、`LLM_MODEL` 和 `LLM_API_KEY`，普通启动优先使用整套环境变量，不与本地配置混用。直接运行 `python app.py` 时仍通过环境变量配置 AI。
 
 服务需兼容 OpenAI Chat Completions。API 基础地址后会自动追加 `/chat/completions`。如果服务的基础地址包括 `/v1`，请保留它。
 
