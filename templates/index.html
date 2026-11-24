@@ -1,133 +1,580 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>任务管理器</title>
+  <title>澄序 · 智能任务工作台</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;1,6..72,400&family=Noto+Sans+SC:wght@400;500;600;700&family=Noto+Serif+SC:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem("chengxu-theme");
+        if (saved === "dark" || saved === "light") {
+          document.documentElement.setAttribute("data-theme", saved);
+        }
+      } catch (e) {}
+    })();
+  </script>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
 </head>
 <body>
-  <div class="app">
-    <header class="topbar">
-      <div class="brand">
-        <span class="brand-mark" aria-hidden="true">✓</span>
-        <div>
-          <h1>任务管理器</h1>
-          <p class="subtitle">Flask + SQLite + 原生 JavaScript</p>
-        </div>
-      </div>
-      <button type="button" id="chat-open" class="btn btn-ghost">💬 AI 聊天</button>
-    </header>
+  <div class="ambient-bg" aria-hidden="true"></div>
 
-    <div class="layout">
-      <main class="workspace">
-        <section class="panel hero" aria-label="完成进度">
-          <div class="hero-text">
-            <p class="eyebrow">今日进度</p>
-            <span id="task-count" class="task-count"></span>
+  <!-- Mobile top bar -->
+  <header class="mobile-bar">
+    <div class="brand-compact">
+      <span class="brand-emblem" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 12.5l4.2 4.2L19 7" />
+        </svg>
+      </span>
+      <span class="brand-name-sm">澄序</span>
+    </div>
+    <div class="mobile-bar-actions">
+      <button type="button" id="mobile-theme-btn" class="icon-pill" title="切换主题" aria-label="切换明暗主题">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+        </svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+        </svg>
+      </button>
+      <button type="button" id="mobile-chat-btn" class="btn-ai-pill">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3l1.8 4.6L18.5 9l-4.7 1.4L12 15l-1.8-4.6L5.5 9l4.7-1.4L12 3z" />
+          <path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15z" />
+        </svg>
+        <span>AI 对话</span>
+      </button>
+    </div>
+  </header>
+
+  <div class="studio-shell">
+    <!-- Left Navigation Rail -->
+    <aside class="sidebar" aria-label="导航与概览">
+      <div class="sidebar-top">
+        <div class="brand">
+          <div class="brand-emblem" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 12.5l4.2 4.2L19 7" />
+            </svg>
           </div>
-          <div class="progress" role="presentation">
-            <div id="progress-fill" class="progress-fill"></div>
+          <div class="brand-copy">
+            <h1 class="brand-name">澄序</h1>
+            <p class="brand-tagline">TASK STUDIO</p>
+          </div>
+        </div>
+
+        <!-- Circular Progress Summary Widget -->
+        <section class="progress-widget" aria-label="今日完成进度">
+          <div class="ring-wrap" aria-hidden="true">
+            <svg class="progress-ring" viewBox="0 0 72 72">
+              <circle class="ring-track" cx="36" cy="36" r="29" />
+              <circle id="progress-ring-fill" class="ring-fill" cx="36" cy="36" r="29" />
+            </svg>
+            <span id="progress-percent" class="ring-percent">0%</span>
+          </div>
+          <div class="progress-info">
+            <p class="progress-label">今日完成度</p>
+            <p id="task-count" class="progress-summary">暂无任务</p>
+            <div class="progress-pills">
+              <span class="mini-stat"><em id="stat-active">0</em> 待办</span>
+              <span class="mini-dot">·</span>
+              <span class="mini-stat"><em id="stat-done">0</em> 完成</span>
+            </div>
           </div>
         </section>
 
-        <section class="panel add-card">
-          <form id="task-form" autocomplete="off">
+        <!-- View Filters -->
+        <nav class="nav-section" aria-label="任务视图">
+          <p class="nav-heading">视图</p>
+          <ul class="nav-list">
+            <li>
+              <button type="button" class="nav-item filter-btn is-active" data-filter="all">
+                <span class="nav-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="4" width="18" height="16" rx="3" />
+                    <path d="M3 10h18" />
+                  </svg>
+                </span>
+                <span class="nav-label">全部任务</span>
+                <span id="badge-all" class="nav-badge">0</span>
+              </button>
+            </li>
+            <li>
+              <button type="button" class="nav-item filter-btn" data-filter="active">
+                <span class="nav-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="9" />
+                    <polyline points="12 7 12 12 15.5 14" />
+                  </svg>
+                </span>
+                <span class="nav-label">进行中</span>
+                <span id="badge-active" class="nav-badge">0</span>
+              </button>
+            </li>
+            <li>
+              <button type="button" class="nav-item filter-btn" data-filter="completed">
+                <span class="nav-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                    <polyline points="22 4 12 14.01 9 11.01" />
+                  </svg>
+                </span>
+                <span class="nav-label">已完成</span>
+                <span id="badge-completed" class="nav-badge">0</span>
+              </button>
+            </li>
+          </ul>
+        </nav>
+
+        <!-- AI Shortcuts -->
+        <div class="nav-section">
+          <p class="nav-heading">智能协作</p>
+          <ul class="nav-list">
+            <li>
+              <button type="button" class="nav-item ai-shortcut" data-ai-jump="recommend">
+                <span class="nav-icon accent-terracotta" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="9" />
+                    <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" />
+                  </svg>
+                </span>
+                <span class="nav-label">今日优先建议</span>
+              </button>
+            </li>
+            <li>
+              <button type="button" class="nav-item ai-shortcut" data-ai-jump="breakdown">
+                <span class="nav-icon accent-sage" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="6" y1="3" x2="6" y2="15" />
+                    <circle cx="18" cy="6" r="3" />
+                    <circle cx="6" cy="18" r="3" />
+                    <path d="M18 9a9 9 0 0 1-9 9" />
+                  </svg>
+                </span>
+                <span class="nav-label">AI 任务拆解</span>
+              </button>
+            </li>
+            <li>
+              <button type="button" id="chat-open" class="nav-item nav-item-chat">
+                <span class="nav-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 3l1.8 4.6L18.5 9l-4.7 1.4L12 15l-1.8-4.6L5.5 9l4.7-1.4L12 3z" />
+                    <path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15z" />
+                  </svg>
+                </span>
+                <span class="nav-label">AI 自由对话</span>
+                <span class="nav-arrow" aria-hidden="true">↗</span>
+              </button>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Sidebar Footer: Theme Switch & Shortcut Guide -->
+      <div class="sidebar-footer">
+        <div class="theme-switch" role="group" aria-label="主题切换">
+          <button type="button" class="theme-option" data-theme-set="light">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="4" />
+              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+            </svg>
+            <span>纸感</span>
+          </button>
+          <button type="button" class="theme-option" data-theme-set="dark">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+            </svg>
+            <span>墨砚</span>
+          </button>
+        </div>
+        <div class="shortcut-hint" aria-hidden="true">
+          <span><kbd>N</kbd> 新建</span>
+          <span><kbd>/</kbd> 搜索</span>
+          <span><kbd>Esc</kbd> 关闭</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Center Main Task Canvas -->
+    <main class="canvas" aria-label="任务工作区">
+      <header class="canvas-header">
+        <div class="header-titles">
+          <div class="date-eyebrow">
+            <span id="greeting-text">你好</span>
+            <span class="eyebrow-sep">·</span>
+            <time id="today-date"></time>
+          </div>
+          <h2 id="view-title" class="view-title">全部任务</h2>
+        </div>
+
+        <div class="header-tools">
+          <div class="search-field">
+            <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              type="search"
+              id="search-input"
+              class="search-input"
+              placeholder="搜索任务…"
+              aria-label="搜索任务"
+              autocomplete="off"
+            />
+            <button type="button" id="search-clear" class="search-clear is-hidden" aria-label="清空搜索">×</button>
+            <kbd class="search-kbd" aria-hidden="true">/</kbd>
+          </div>
+
+          <button type="button" id="sort-toggle" class="tool-pill" title="切换排序方式">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 6h18M7 12h10M10 18h4" />
+            </svg>
+            <span id="sort-label">最新创建</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Mobile Filter Pills (shown when sidebar is collapsed) -->
+      <nav class="mobile-filters" aria-label="移动端任务筛选">
+        <button type="button" class="mobile-filter-pill filter-btn is-active" data-filter="all">全部</button>
+        <button type="button" class="mobile-filter-pill filter-btn" data-filter="active">进行中</button>
+        <button type="button" class="mobile-filter-pill filter-btn" data-filter="completed">已完成</button>
+      </nav>
+
+      <!-- Quick Capture Composer -->
+      <section class="composer-card" id="composer-card" aria-label="添加新任务">
+        <form id="task-form" autocomplete="off">
+          <div class="composer-main">
+            <span class="composer-plus" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+            </span>
             <input
               type="text"
               id="title-input"
-              class="input"
-              placeholder="需要做什么？"
+              class="composer-title-input"
+              placeholder="记录下一件要做的事…"
               maxlength="200"
               required
             />
-            <textarea
-              id="desc-input"
-              class="input textarea"
-              placeholder="描述（可选）"
-              rows="2"
-            ></textarea>
-            <button type="submit" class="btn btn-primary">添加任务</button>
+            <button type="submit" class="btn-quick-add" id="quick-add-inline" aria-label="添加任务">
+              <span>添加</span>
+              <span class="enter-glyph" aria-hidden="true">↵</span>
+            </button>
+          </div>
+
+          <div class="composer-drawer" id="composer-drawer">
+            <div class="composer-drawer-inner">
+              <textarea
+                id="desc-input"
+                class="composer-desc-input"
+                placeholder="补充执行细节、截止时间或验收标准（选填）…"
+                rows="2"
+                maxlength="1000"
+              ></textarea>
+              <div class="composer-footer">
+                <div class="composer-meta">
+                  <span id="title-counter" class="char-counter">0 / 200</span>
+                  <span class="composer-tip">按 Enter 直接提交 · Shift+Enter 在描述中换行</span>
+                </div>
+                <div class="composer-actions">
+                  <button type="button" id="composer-cancel" class="btn btn-text">收起</button>
+                  <button type="submit" class="btn btn-ink">
+                    <span>添加任务</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <!-- Task List Area -->
+      <section class="tasks-section" aria-label="任务列表">
+        <div class="list-toolbar" id="list-toolbar">
+          <span id="list-meta-text" class="list-meta-text">加载中…</span>
+          <button type="button" id="clear-search-btn" class="link-btn is-hidden">清除搜索条件</button>
+        </div>
+
+        <ul id="task-list" class="task-list"></ul>
+
+        <div id="empty-state" class="empty-state is-hidden">
+          <div class="empty-illustration" aria-hidden="true">
+            <svg viewBox="0 0 120 90" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="22" y="14" width="76" height="62" rx="12" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.45" />
+              <rect x="34" y="28" width="52" height="10" rx="5" fill="currentColor" opacity="0.1" />
+              <rect x="34" y="46" width="36" height="8" rx="4" fill="currentColor" opacity="0.08" />
+              <circle cx="88" cy="64" r="14" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.8" />
+              <path d="M83 64l3.5 3.5L93.5 60" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </div>
+          <h3 id="empty-title" class="empty-title">此刻清净无事</h3>
+          <p id="empty-subtitle" class="empty-subtitle">在上方输入框写下第一个待办，或用右侧 AI 拆解一个大目标。</p>
+        </div>
+      </section>
+    </main>
+
+    <!-- Right AI Studio Panel -->
+    <aside class="ai-studio" id="ai-studio" aria-label="AI 智能规划面板">
+      <div class="studio-card">
+        <div class="studio-card-head">
+          <div class="studio-badge">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 3l1.8 4.6L18.5 9l-4.7 1.4L12 15l-1.8-4.6L5.5 9l4.7-1.4L12 3z" />
+              <path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15z" />
+            </svg>
+            <span>AI 规划助手</span>
+          </div>
+
+          <div class="segmented-tabs" role="tablist" aria-label="AI 功能切换">
+            <button type="button" role="tab" class="seg-tab is-active" id="tab-recommend" data-ai-tab="recommend" aria-selected="true" aria-controls="panel-recommend">
+              今日建议
+            </button>
+            <button type="button" role="tab" class="seg-tab" id="tab-breakdown" data-ai-tab="breakdown" aria-selected="false" aria-controls="panel-breakdown">
+              任务拆解
+            </button>
+          </div>
+        </div>
+
+        <!-- Tab Panel 1: Today's Recommendations -->
+        <section id="panel-recommend" class="ai-pane" role="tabpanel" aria-labelledby="tab-recommend">
+          <div class="pane-intro">
+            <h2 id="recommend-heading" class="pane-title">今天先做什么？</h2>
+            <p class="pane-desc">结合你当下的可用时间与精力，从待办中挑出最值得立刻推进的 1–3 件事。</p>
+          </div>
+
+          <form id="recommend-form" class="ai-form">
+            <label for="recommend-context" class="field-label">今天的安排或状态（选填）</label>
+            <input
+              type="text"
+              id="recommend-context"
+              class="field-input"
+              maxlength="300"
+              placeholder="例如：我现在只有 30 分钟，想快速推进一件事"
+            />
+            <div class="chip-row" aria-label="快捷场景预设">
+              <button type="button" class="preset-chip" data-recommend-preset="我现在只有 30 分钟，适合做能快速完成的任务">只有 30 分钟</button>
+              <button type="button" class="preset-chip" data-recommend-preset="上午精力很充沛，优先攻克最重要最难的任务">精力充沛</button>
+              <button type="button" class="preset-chip" data-recommend-preset="快下班了，想处理收尾工作和简单事项">下班前收尾</button>
+            </div>
+            <p class="privacy-note">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" />
+                <line x1="12" y1="16" x2="12" y2="12" />
+                <line x1="12" y1="8" x2="12.01" y2="8" />
+              </svg>
+              <span>将发送未完成任务标题、描述与上述安排给已配置的模型服务。</span>
+            </p>
+            <button type="submit" id="recommend-submit" class="btn btn-accent btn-full">
+              <span class="btn-spinner" aria-hidden="true"></span>
+              <span class="btn-label">生成行动建议</span>
+            </button>
           </form>
-        </section>
 
-        <nav class="filters" aria-label="任务筛选">
-          <button class="filter-btn is-active" data-filter="all">全部</button>
-          <button class="filter-btn" data-filter="active">进行中</button>
-          <button class="filter-btn" data-filter="completed">已完成</button>
-        </nav>
-
-        <section>
-          <ul id="task-list" class="task-list"></ul>
-          <p id="empty-state" class="empty-state">还没有任务，先在上方添加一个吧 🎉</p>
-        </section>
-      </main>
-
-      <aside class="assistant" aria-label="AI 助手">
-        <section class="panel recommend-card" aria-labelledby="recommend-heading">
-          <h2 id="recommend-heading">今天先做什么？</h2>
-          <form id="recommend-form">
-            <label for="recommend-context">今天的安排（选填）</label>
-            <input type="text" id="recommend-context" class="input" maxlength="300"
-              placeholder="例如：我现在只有 30 分钟" />
-            <p class="recommend-note">生成时会将未完成任务的标题、描述和你填写的安排发送给配置的模型服务。</p>
-            <button type="submit" id="recommend-submit" class="btn btn-primary">生成建议</button>
-          </form>
-          <p id="recommend-status" class="recommend-status" role="status"></p>
+          <p id="recommend-status" class="status-banner" role="status"></p>
           <ol id="recommend-results" class="recommend-results" aria-label="任务推荐顺序"></ol>
         </section>
 
-        <section class="panel recommend-card" aria-labelledby="breakdown-heading">
-          <h2 id="breakdown-heading">AI 分解任务</h2>
-          <form id="breakdown-form">
-            <label for="breakdown-goal">你想完成什么？</label>
-            <textarea id="breakdown-goal" class="input textarea" maxlength="2000" rows="3" required
-              placeholder="例如：两周内完成实习汇报，准备演示文稿并至少彩排一次"></textarea>
-            <p class="recommend-note">仅将此处输入发送给配置的模型服务。生成后可修改或移除草稿，确认后才加入列表。</p>
-            <button type="submit" id="breakdown-generate" class="btn btn-primary">生成子任务</button>
+        <!-- Tab Panel 2: AI Task Decomposition -->
+        <section id="panel-breakdown" class="ai-pane is-hidden" role="tabpanel" aria-labelledby="tab-breakdown">
+          <div class="pane-intro">
+            <h2 id="breakdown-heading" class="pane-title">AI 分解大任务</h2>
+            <p class="pane-desc">把模糊的长期目标拆解为按顺序排列的可勾选子任务，审阅后再批量加入列表。</p>
+          </div>
+
+          <form id="breakdown-form" class="ai-form">
+            <label for="breakdown-goal" class="field-label">你想完成什么目标？</label>
+            <textarea
+              id="breakdown-goal"
+              class="field-input field-textarea"
+              maxlength="2000"
+              rows="3"
+              required
+              placeholder="例如：两周内完成实习汇报，准备演示文稿并至少彩排一次"
+            ></textarea>
+            <div class="chip-row" aria-label="示例目标">
+              <button type="button" class="preset-chip" data-breakdown-preset="两周内完成实习汇报，准备演示文稿并至少彩排一次">实习汇报</button>
+              <button type="button" class="preset-chip" data-breakdown-preset="周末两天重构个人项目文档并上线演示站点">上线演示站</button>
+              <button type="button" class="preset-chip" data-breakdown-preset="本月系统复习前端核心知识并整理面试笔记">面试复习</button>
+            </div>
+            <p class="privacy-note">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" />
+                <line x1="12" y1="16" x2="12" y2="12" />
+                <line x1="12" y1="8" x2="12.01" y2="8" />
+              </svg>
+              <span>仅发送上方目标文字，生成草稿后可任意修改或删除。</span>
+            </p>
+            <button type="submit" id="breakdown-generate" class="btn btn-ink btn-full">
+              <span class="btn-spinner" aria-hidden="true"></span>
+              <span class="btn-label">生成子任务草稿</span>
+            </button>
           </form>
-          <p id="breakdown-status" class="recommend-status" role="status"></p>
-          <form id="breakdown-save-form" hidden>
-            <ol id="breakdown-results" class="recommend-results" aria-label="子任务草稿"></ol>
-            <button type="submit" id="breakdown-save" class="btn btn-primary">批量加入任务列表</button>
+
+          <p id="breakdown-status" class="status-banner" role="status"></p>
+
+          <form id="breakdown-save-form" class="draft-form" hidden>
+            <div class="draft-header">
+              <span id="draft-count-label" class="draft-count">草稿清单</span>
+              <button type="button" id="draft-clear-all" class="link-btn">清空草稿</button>
+            </div>
+            <ol id="breakdown-results" class="draft-list" aria-label="子任务草稿"></ol>
+            <button type="submit" id="breakdown-save" class="btn btn-sage btn-full">
+              <span class="btn-spinner" aria-hidden="true"></span>
+              <span class="btn-label">批量加入任务列表</span>
+            </button>
           </form>
         </section>
-      </aside>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Edit Task Modal -->
+  <div id="edit-modal" class="modal-backdrop is-hidden" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2 id="edit-modal-title">编辑任务</h2>
+        <button type="button" id="edit-close-x" class="icon-close" aria-label="关闭弹窗">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+      <form id="edit-form" class="modal-body">
+        <div class="form-group">
+          <label for="edit-title" class="field-label">任务标题</label>
+          <input type="text" id="edit-title" class="field-input" maxlength="200" required />
+        </div>
+        <div class="form-group">
+          <label for="edit-desc" class="field-label">详细描述（选填）</label>
+          <textarea id="edit-desc" class="field-input field-textarea" rows="4" maxlength="1000" placeholder="补充执行要点或验收标准…"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" id="edit-cancel" class="btn btn-subtle">取消</button>
+          <button type="submit" id="edit-save" class="btn btn-ink">保存更改</button>
+        </div>
+      </form>
     </div>
   </div>
 
-  <div id="edit-modal" class="modal-overlay is-hidden">
-    <div class="modal">
-      <h2>编辑任务</h2>
-      <input type="text" id="edit-title" class="input" maxlength="200" />
-      <textarea id="edit-desc" class="input textarea" rows="3"></textarea>
-      <div class="modal-actions">
-        <button id="edit-cancel" class="btn btn-secondary">取消</button>
-        <button id="edit-save" class="btn btn-primary">保存</button>
+  <!-- Delete Confirm Modal (Replaces native window.confirm) -->
+  <div id="confirm-modal" class="modal-backdrop is-hidden" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-desc">
+    <div class="modal-card modal-sm">
+      <div class="confirm-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="3 6 5 6 21 6" />
+          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+          <path d="M10 11v6M14 11v6" />
+          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+        </svg>
+      </div>
+      <h2 id="confirm-title" class="confirm-heading">删除这条任务？</h2>
+      <p id="confirm-desc" class="confirm-copy">删除后无法恢复。</p>
+      <div class="modal-footer">
+        <button type="button" id="confirm-cancel" class="btn btn-subtle">取消</button>
+        <button type="button" id="confirm-ok" class="btn btn-danger">确认删除</button>
       </div>
     </div>
   </div>
 
-  <dialog id="chat-dialog" class="chat-dialog" aria-labelledby="chat-heading">
-    <header class="chat-header">
-      <h2 id="chat-heading">AI 聊天</h2>
-      <button type="button" id="chat-close" class="btn btn-secondary">关闭</button>
+  <!-- Slide-Over AI Chat Drawer -->
+  <div id="chat-backdrop" class="drawer-backdrop is-hidden" aria-hidden="true"></div>
+  <aside id="chat-drawer" class="chat-drawer is-hidden" role="dialog" aria-modal="true" aria-labelledby="chat-heading">
+    <header class="drawer-header">
+      <div class="drawer-title-group">
+        <span class="drawer-sparkle" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3l1.8 4.6L18.5 9l-4.7 1.4L12 15l-1.8-4.6L5.5 9l4.7-1.4L12 3z" />
+            <path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15z" />
+          </svg>
+        </span>
+        <div class="drawer-heading-wrap">
+          <h2 id="chat-heading">AI 对话助手</h2>
+          <p id="chat-subtitle" class="drawer-subtitle">最多保留最近 8 轮对话</p>
+        </div>
+      </div>
+      <div class="drawer-head-actions">
+        <span id="chat-turn-badge" class="turn-badge">0 / 8 轮</span>
+        <button type="button" id="chat-reset" class="icon-close" title="清空当前对话" aria-label="清空当前对话">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="1 4 1 10 7 10" />
+            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+          </svg>
+        </button>
+        <button type="button" id="chat-close" class="icon-close" title="关闭对话" aria-label="关闭对话">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
     </header>
-    <p id="chat-note" class="recommend-note"></p>
-    <p id="chat-empty" class="recommend-note"></p>
-    <ol id="chat-log" class="chat-log" role="log" aria-label="对话记录" tabindex="0"></ol>
-    <form id="chat-form">
-      <label for="chat-input">你的消息</label>
-      <textarea id="chat-input" class="input textarea" rows="3" maxlength="2000" required></textarea>
-      <p id="chat-status" class="recommend-status" role="status"></p>
-      <div class="chat-actions">
-        <button type="submit" id="chat-send" class="btn btn-primary">发送</button>
-        <button type="button" id="chat-reset" class="btn btn-secondary">清空对话</button>
+
+    <!-- Task Context Card (visible when chatting about a specific task) -->
+    <div id="chat-context-card" class="chat-context-card is-hidden">
+      <div class="context-card-top">
+        <span class="context-kicker">正在围绕此计划深聊</span>
+        <span id="chat-context-status" class="status-pill">进行中</span>
+      </div>
+      <p id="chat-context-title" class="context-card-title"></p>
+      <p id="chat-context-desc" class="context-card-desc"></p>
+    </div>
+
+    <div class="drawer-note-bar">
+      <p id="chat-note" class="drawer-note"></p>
+    </div>
+
+    <!-- Messages Container -->
+    <div class="drawer-body" id="chat-body">
+      <div id="chat-empty" class="chat-welcome">
+        <div class="welcome-orb" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+        </div>
+        <h3 id="chat-empty-title">随时开始讨论</h3>
+        <p id="chat-empty-desc">说说你正在纠结的安排，或点选下方快捷问题开始对话。</p>
+        <div id="chat-starters" class="starter-prompts"></div>
+      </div>
+
+      <ol id="chat-log" class="chat-log" role="log" aria-label="对话记录" tabindex="0"></ol>
+    </div>
+
+    <!-- Chat Input Footer -->
+    <form id="chat-form" class="drawer-footer">
+      <p id="chat-status" class="chat-status-line" role="status"></p>
+      <div class="chat-composer">
+        <textarea
+          id="chat-input"
+          class="chat-textarea"
+          rows="2"
+          maxlength="2000"
+          placeholder="输入你想聊的内容…（Enter 发送，Shift+Enter 换行）"
+          required
+        ></textarea>
+        <button type="submit" id="chat-send" class="chat-send-btn" aria-label="发送消息">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13" />
+            <polygon points="22 2 15 22 11 13 2 9 22 2" />
+          </svg>
+        </button>
       </div>
     </form>
-  </dialog>
+  </aside>
 
-  <div id="toast" class="toast"></div>
+  <!-- Floating Toast -->
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
