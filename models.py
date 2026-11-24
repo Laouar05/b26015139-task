@@ -12,6 +12,15 @@ def utcnow():
     return datetime.now(timezone.utc)
 
 
+def timestamp_to_iso(value):
+    if value is None:
+        return None
+    # SQLite drops timezone information when storing our UTC timestamps.
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.isoformat()
+
+
 class Task(db.Model):
     """A single to-do / task item."""
 
@@ -33,8 +42,8 @@ class Task(db.Model):
             "title": self.title,
             "description": self.description or "",
             "completed": self.completed,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": timestamp_to_iso(self.created_at),
+            "updated_at": timestamp_to_iso(self.updated_at),
         }
 
     def __repr__(self):
