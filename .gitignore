@@ -10,7 +10,11 @@ venv/
 env/
 ENV/
 
-# SQLite database
+# SQLite backups and sidecars
+*.pre-rbac-*.bak
+*.db-wal
+*.db-shm
+*.db-journal
 
 
 # IDE / editors

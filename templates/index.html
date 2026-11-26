@@ -22,7 +22,7 @@
   </script>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
 </head>
-<body>
+  <body data-auth-pending>
   <div class="ambient-bg" aria-hidden="true"></div>
 
   <!-- Mobile top bar -->
@@ -55,7 +55,7 @@
     </div>
   </header>
 
-  <div class="studio-shell">
+  <div class="studio-shell without-ai" id="studio-shell">
     <!-- Left Navigation Rail -->
     <aside class="sidebar" aria-label="导航与概览">
       <div class="sidebar-top">
@@ -242,6 +242,13 @@
         </div>
       </header>
 
+      <div class="account-strip" aria-label="账号">
+        <span id="account-state" role="status">正在检查登录状态…</span>
+        <button type="button" id="auth-open" class="btn btn-subtle" hidden>登录</button>
+        <button type="button" id="admin-open" class="btn btn-subtle" hidden>管理</button>
+        <button type="button" id="auth-logout" class="btn btn-text" hidden>退出所有设备</button>
+      </div>
+
       <!-- Mobile Filter Pills (shown when sidebar is collapsed) -->
       <nav class="mobile-filters" aria-label="移动端任务筛选">
         <button type="button" class="mobile-filter-pill filter-btn is-active" data-filter="all">全部</button>
@@ -375,6 +382,7 @@
               </svg>
               <span>将发送未完成任务标题、描述与上述安排给已配置的模型服务。</span>
             </p>
+            <label id="recommend-scope-wrap" hidden><input type="checkbox" id="recommend-scope" /> 包含其他用户的未完成任务</label>
             <button type="submit" id="recommend-submit" class="btn btn-accent btn-full">
               <span class="btn-spinner" aria-hidden="true"></span>
               <span class="btn-label">生成行动建议</span>
@@ -573,9 +581,45 @@
     </form>
   </aside>
 
+  <dialog id="auth-dialog" class="access-dialog modal-card" aria-labelledby="auth-heading">
+    <div class="modal-head"><h2 id="auth-heading">登录澄序</h2><button class="icon-close" type="button" data-dialog-close aria-label="关闭">×</button></div>
+    <form id="auth-form" class="modal-body">
+      <label class="field-label">用户名<input id="auth-username" class="field-input" autocomplete="username" minlength="3" maxlength="32" required autofocus /></label>
+      <label class="field-label">密码<input id="auth-password" class="field-input" type="password" autocomplete="current-password" maxlength="128" required /></label>
+      <p id="auth-feedback" class="status-banner" role="status"></p>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-text" id="auth-switch" hidden>注册账号</button>
+        <button type="submit" class="btn btn-ink" id="auth-submit">登录</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="admin-dialog" class="access-dialog access-drawer" aria-labelledby="admin-heading">
+    <div class="drawer-header"><h2 id="admin-heading">用户与权限</h2><button class="icon-close" type="button" data-dialog-close aria-label="关闭">×</button></div>
+    <div class="drawer-body access-body">
+      <p id="admin-feedback" class="status-banner" role="status"></p>
+      <section id="admin-users" aria-label="用户">
+        <h3>用户</h3>
+        <form id="admin-search" class="access-actions"><input id="admin-query" class="field-input" type="search" aria-label="按用户名搜索" placeholder="搜索用户名" maxlength="32" /><button class="btn btn-subtle">搜索</button></form>
+        <ul id="admin-list" class="access-list"></ul>
+        <div class="access-actions"><button type="button" id="admin-prev" class="btn btn-subtle">上一页</button><span id="admin-page"></span><button type="button" id="admin-next" class="btn btn-subtle">下一页</button></div>
+        <form id="admin-edit" hidden><h3 id="admin-target"></h3><fieldset id="admin-role-fields"><legend>替换角色</legend><div id="admin-role-options"></div><p>要设为只读，请仅选择「只读访客」。权限会合并。</p><button type="submit" id="admin-save-roles" class="btn btn-ink">保存角色</button></fieldset><button type="button" id="admin-toggle-active" class="btn btn-subtle"></button></form>
+      </section>
+      <section id="admin-role-catalog" aria-label="角色权限"><h3>角色权限</h3><div id="admin-roles"></div></section>
+    </div>
+  </dialog>
+  <dialog id="transfer-dialog" class="access-dialog modal-card" aria-labelledby="transfer-heading">
+    <div class="modal-head"><h2 id="transfer-heading">转交任务</h2><button class="icon-close" type="button" data-dialog-close aria-label="关闭">×</button></div>
+    <div class="modal-body">
+      <p id="transfer-task-name"></p>
+      <form id="transfer-search" class="access-actions"><input id="transfer-query" class="field-input" type="search" aria-label="按用户名搜索" placeholder="输入目标用户名" maxlength="32" autofocus /><button class="btn btn-subtle">搜索</button></form>
+      <form id="transfer-form"><label class="field-label">有效用户<select id="transfer-user" class="field-input" required></select></label><p id="transfer-feedback" class="status-banner" role="status"></p><button type="submit" id="transfer-submit" class="btn btn-ink" disabled>确认转交</button></form>
+    </div>
+  </dialog>
+
   <!-- Floating Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/access.js') }}"></script>
 </body>
 </html>

@@ -207,16 +207,6 @@ function showToast(message, type = "info") {
   }, 2600);
 }
 
-async function request(url, options = {}) {
-  const res = await fetch(url, options);
-  if (res.status === 204) return null;
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(data.error || `请求失败（${res.status}）`);
-  }
-  return data;
-}
-
 function setButtonLoading(btn, loading, loadingText, idleText) {
   btn.disabled = loading;
   btn.classList.toggle("is-loading", loading);
@@ -245,6 +235,7 @@ document.getElementById("mobile-theme-btn")?.addEventListener("click", () => {
 
 /* ---------- AI Studio Tabs ---------- */
 function switchAiTab(tabName, shouldFocus = false) {
+  if (!canUseTab(tabName)) return;
   const isRecommend = tabName === "recommend";
   aiTabs.forEach((tab) => {
     const active = tab.dataset.aiTab === tabName;
@@ -488,10 +479,30 @@ function buildTaskItem(task) {
     </div>
   `;
 
-  li.querySelector(".task-check-btn").addEventListener("click", () => toggleTask(task.id));
-  li.querySelector(".task-action-chat").addEventListener("click", () => openChat(task));
-  li.querySelector(".edit-btn").addEventListener("click", () => openEditModal(task));
-  li.querySelector(".delete-btn").addEventListener("click", () => openDeleteConfirm(task));
+  const writable = mayWriteTask(task);
+  const toggle = li.querySelector('.task-check-btn');
+  toggle.disabled = !writable;
+  if (!writable) {
+    toggle.setAttribute('aria-label', task.completed ? '已完成' : '未完成');
+    toggle.title = '只读任务';
+  }
+  const edit = li.querySelector('.edit-btn');
+  const remove = li.querySelector('.delete-btn');
+  const chat = li.querySelector('.task-action-chat');
+  edit.hidden = remove.hidden = !writable;
+  chat.hidden = !hasPermissions('ai:chat', 'task:read');
+  toggle.addEventListener('click', () => toggleTask(task.id));
+  chat.addEventListener('click', () => openChat(task));
+  edit.addEventListener('click', () => openEditModal(task));
+  remove.addEventListener('click', () => openDeleteConfirm(task));
+  if (hasPermissions('task:assign', 'task:read', 'task:write', 'task:read_all', 'task:write_all', 'user:manage')) {
+    const transfer = document.createElement('button');
+    transfer.type = 'button';
+    transfer.className = 'link-btn';
+    transfer.textContent = '转交';
+    transfer.addEventListener('click', () => openTransfer(task));
+    li.querySelector('.task-actions').append(transfer);
+  }
 
   return li;
 }
@@ -505,6 +516,7 @@ async function loadTasks() {
     updateProgressAndBadges();
     renderTaskList();
   } catch (err) {
+    if (err.name === 'AbortError') return;
     if (version !== taskLoadVersion) return;
     showToast("加载任务失败：" + err.message, "error");
     allTasks = [];
@@ -548,6 +560,7 @@ async function addTask(event) {
     showToast("已添加到任务清单", "success");
     titleInput.focus();
   } catch (err) {
+    if (err.name === 'AbortError') return;
     showToast(err.message, "error");
   }
 }
@@ -568,6 +581,7 @@ async function toggleTask(id) {
       showToast("已完成一项任务", "success");
     }
   } catch (err) {
+    if (err.name === 'AbortError') return;
     target.completed = prev;
     updateProgressAndBadges();
     renderTaskList();
@@ -611,6 +625,7 @@ async function saveEdit(event) {
     closeEditModal();
     showToast("任务已更新", "success");
   } catch (err) {
+    if (err.name === 'AbortError') return;
     showToast(err.message, "error");
   }
 }
@@ -644,6 +659,7 @@ async function executeDelete() {
     renderTaskList();
     showToast("任务已删除", "success");
   } catch (err) {
+    if (err.name === 'AbortError') return;
     showToast(err.message, "error");
   }
 }
@@ -651,7 +667,9 @@ async function executeDelete() {
 /* ---------- Today's AI Recommendations ---------- */
 async function generateRecommendations(event) {
   event.preventDefault();
-  if (recommendSubmit.disabled) return;
+  if (recommendSubmit.disabled || !canUseTab('recommend')) return;
+  const includeAll = document.getElementById('recommend-scope').checked && hasPermissions('task:read_all');
+  if (includeAll && !window.confirm('将把其他用户的未完成任务发送给已配置的模型供应商。继续？')) return;
   setButtonLoading(recommendSubmit, true, "正在分析排期…", "生成行动建议");
   recommendStatus.textContent = "正在结合未完成任务与当下状态分析…";
   recommendStatus.className = "status-banner";
@@ -661,7 +679,7 @@ async function generateRecommendations(event) {
     const { recommendations } = await request(RECOMMEND_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ context: recommendContext.value.trim() }),
+      body: JSON.stringify({ context: recommendContext.value.trim(), scope: includeAll ? 'all' : 'own' }),
     });
 
     if (!recommendations.length) {
@@ -704,6 +722,7 @@ async function generateRecommendations(event) {
       recommendResults.appendChild(li);
     });
   } catch (err) {
+    if (err.name === 'AbortError') return;
     recommendStatus.textContent = err.message;
     recommendStatus.className = "status-banner is-error";
   } finally {
@@ -842,6 +861,7 @@ async function generateTaskDrafts(event) {
     draftGoal = goal;
     setBreakdownStatus(`已拆解为 ${tasks.length} 步草稿，审阅后可一键批量加入。`, "success");
   } catch (err) {
+    if (err.name === 'AbortError') return;
     setBreakdownStatus(err.message, "error");
   } finally {
     breakdownBusy = false;
@@ -878,6 +898,7 @@ async function saveTaskDrafts(event) {
     if (currentFilter === "completed") changeFilter("active");
     await loadTasks();
   } catch (err) {
+    if (err.name === 'AbortError') return;
     setBreakdownStatus(err.message, "error");
   } finally {
     breakdownBusy = false;
@@ -1008,6 +1029,9 @@ function renderChatStarters(isTaskChat) {
 }
 
 function openChat(task = null) {
+  if (!hasPermissions('ai:chat') || task && !hasPermissions('task:read')) return;
+  if (task && task.owner_id !== authState.user.id &&
+      !window.confirm('将把这条任务的标题、描述和状态发送给已配置的模型供应商。继续？')) return;
   const taskId = task?.id ?? null;
   if (!chatThreads.has(taskId)) {
     chatThreads.set(taskId, { taskId, messages: [], draft: "", pending: false, error: "" });
@@ -1097,6 +1121,7 @@ chatForm.addEventListener("submit", async (event) => {
     ].slice(-CHAT_HISTORY_LIMIT);
     thread.draft = "";
   } catch (err) {
+    if (err.name === 'AbortError') return;
     thread.error = err.message;
   } finally {
     thread.pending = false;
@@ -1208,4 +1233,3 @@ confirmModal.addEventListener("click", (e) => {
 });
 
 initHeaderDate();
-loadTasks();

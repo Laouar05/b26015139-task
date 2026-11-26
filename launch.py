@@ -2,25 +2,30 @@
 import argparse
 import json
 import os
+import secrets
+import sqlite3
 import subprocess
 import sys
 from getpass import getpass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
+from bootstrap import BootstrapError, inspect_database
+from config import DEFAULT_DATABASE_URI, boolean, sqlite_url
+from credentials import normalize_username, validate_password
 from llm import ModelListError, list_models
 
 
 LLM_KEYS = ("LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY")
 
 
-def read_api_key():
+def read_api_key(label='API 密钥'):
     if sys.platform != "win32":
-        return getpass("API 密钥（输入时隐藏）：")
+        return getpass(f'{label}（输入时隐藏）：')
 
     from msvcrt import getwch
 
-    print("API 密钥（输入时显示星号）：", end="", flush=True)
+    print(f'{label}（输入时显示星号）：', end='', flush=True)
     characters = []
     try:
         while True:
@@ -164,15 +169,89 @@ def configure_ai(env, *, force=False):
         print("下次普通启动时，完整的环境变量配置仍优先。", flush=True)
 
 
+def load_local_secret(path):
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    try:
+        secret = path.read_text(encoding='ascii').strip()
+    except FileNotFoundError:
+        candidate = secrets.token_hex(32)
+        temporary_path = None
+        try:
+            with NamedTemporaryFile(mode='w', encoding='ascii', dir=path.parent, delete=False) as stream:
+                temporary_path = Path(stream.name)
+                stream.write(candidate + '\n')
+                stream.flush()
+                os.fsync(stream.fileno())
+            try:
+                os.link(temporary_path, path)
+            except FileExistsError:
+                pass
+            secret = path.read_text(encoding='ascii').strip()
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
+    if len(secret) != 64 or any(character not in '0123456789abcdef' for character in secret):
+        raise ValueError('本地会话密钥无效，请检查配置文件。')
+    return secret
+
+
+def configure_local(env):
+    env['TASK_STUDIO_LOCAL'] = '1'
+    env.setdefault('RBAC_ALLOW_REGISTRATION', 'true')
+    boolean(env, 'RBAC_ALLOW_REGISTRATION')
+    if not env.get('SECRET_KEY'):
+        env['SECRET_KEY'] = load_local_secret(user_config_path().with_name('session.key'))
+    elif len(env['SECRET_KEY'].encode('utf-8')) < 32:
+        raise ValueError('环境变量 SECRET_KEY 太短，至少需要 32 字节。')
+    url = sqlite_url(env.get('DATABASE_URL') or DEFAULT_DATABASE_URI)
+    state = inspect_database(url.database)
+    if state == 'ready':
+        env.pop('RBAC_BOOTSTRAP_ADMIN_PASSWORD', None)
+        env.pop('RBAC_BOOTSTRAP_ADMIN_USERNAME', None)
+        return
+    if state == 'legacy':
+        print('检测到历史任务库：将先备份，再把原任务归到初始管理员名下。', flush=True)
+    else:
+        print('首次启动：请设置初始管理员。', flush=True)
+    username_key = 'RBAC_BOOTSTRAP_ADMIN_USERNAME'
+    password_key = 'RBAC_BOOTSTRAP_ADMIN_PASSWORD'
+    if env.get(username_key):
+        env[username_key] = normalize_username(env[username_key])
+    if env.get(password_key):
+        env[password_key] = validate_password(env[password_key])
+    if not sys.stdin.isatty() and (not env.get(username_key) or not env.get(password_key)):
+        raise ValueError('请在控制台通过 start.bat 首次启动，或提供初始管理员环境变量。')
+    while not env.get(username_key):
+        value = input('初始管理员用户名（回车确认 admin）：').strip() or 'admin'
+        try:
+            env[username_key] = normalize_username(value)
+        except ValueError as exc:
+            print(exc, flush=True)
+    while not env.get(password_key):
+        try:
+            password = validate_password(read_api_key('初始管理员密码（8–128 个字符）'))
+            if password != read_api_key('再次输入管理员密码'):
+                print('两次输入不同，请重试。', flush=True)
+                continue
+            env[password_key] = password
+        except ValueError as exc:
+            print(exc, flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description="配置并启动任务管理器。")
     parser.add_argument("--configure-ai", action="store_true", help="重新配置本地 AI 设置")
     args = parser.parse_args()
     env = os.environ.copy()
+    try:
+        configure_local(env)
+    except (BootstrapError, ValueError, OSError, EOFError, sqlite3.Error) as exc:
+        print(f'启动配置失败：{exc}', file=sys.stderr, flush=True)
+        return 1
     configure_ai(env, force=args.configure_ai)
     print("正在启动任务管理器，访问地址为 http://127.0.0.1:5000", flush=True)
     print("按 Ctrl+C 停止服务。", flush=True)
-    return subprocess.call([sys.executable, "app.py"], env=env)
+    return subprocess.call([sys.executable, '-X', 'utf8', str(Path(__file__).resolve().with_name('app.py'))], env=env)
 
 
 if __name__ == "__main__":

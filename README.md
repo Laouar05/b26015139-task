@@ -40,11 +40,12 @@ task/
 
 ### Windows 一键启动
 
-安装 Python 3 后，双击项目根目录的 `start.bat`，或在 PowerShell 中运行 `.\start.bat`。
-脚本会创建或复用 `.venv`，安装项目依赖并启动 Flask。首次安装依赖通常需要联网。
+1. 安装 Python 3 后，双击 [启动脚本](start.bat)，或在 PowerShell 运行 `.\start.bat`。脚本会创建或复用虚拟环境并安装依赖，首次安装通常需要联网。
+2. 第一次使用空库或旧库时，输入初始管理员用户名（直接回车选 `admin`），再输入并确认 8–128 字符的独立强密码。没有预设密码，后续启动不重问。旧库会先备份，再把历史任务归到初始管理员名下；请先关闭旧版本服务。
+3. 按需配置 AI。可回车跳过，不影响登录、角色管理和任务功能。看到服务启动后，打开 [http://127.0.0.1:5000](http://127.0.0.1:5000)，使用刚设置的管理员账号登录；停止服务按 `Ctrl+C`。
+4. 演示角色时，可在隐私窗口注册并登录普通成员，先创建一条任务；再用管理员在「管理」中打开该用户，取消「普通成员」并只勾选「只读访客」。刷新访客页面后，只能查看本人任务，不能修改或调用 AI。管理员也可用任务旁的「转交」分配任务。
 
-看到 Flask 的启动日志后，打开 [http://127.0.0.1:5000](http://127.0.0.1:5000)。
-保持启动窗口开启；需要停止服务时按 `Ctrl+C`。
+未指定 `SECRET_KEY` 时，Windows 启动器自动在 `%LOCALAPPDATA%\TaskManager\session.key` 创建并复用随机密钥。外部环境变量优先；不要对外共享密钥。双击启动默认开启注册，可在 PowerShell 中先设 `$env:RBAC_ALLOW_REGISTRATION='false'`，再运行 `.\start.bat`。
 
 ### 手动启动（Windows / macOS / Linux）
 
@@ -69,7 +70,7 @@ task/
 3. **启动应用**：
 
    ```bash
-   python app.py
+   python launch.py
    ```
 
 4. 在浏览器中打开 **http://127.0.0.1:5000**
@@ -119,10 +120,22 @@ task/
 
 可选的环境变量：
 
-- `DATABASE_URL` —— 覆盖 SQLite 数据库位置（默认 `sqlite:///task.db`）
-- `SECRET_KEY` —— Flask 密钥
+- `DATABASE_URL`：覆盖 SQLite 文件位置，默认使用项目根目录的数据库。
+- `SECRET_KEY`：环境变量优先，设为独立高熵密钥（至少 32 随机字节）。
+- `RBAC_BOOTSTRAP_ADMIN_USERNAME` / `RBAC_BOOTSTRAP_ADMIN_PASSWORD`：无控制台的首次初始化必填；初始化后可撤下，口令不会覆盖已初始化账号。
+- `RBAC_ALLOW_REGISTRATION`：本地启动默认开启，服务部署默认关闭，可显式设置 `true` / `false`。
+- `TASK_STUDIO_ORIGIN`：部署时指定可信站点来源，例如 `https://tasks.example.com`，不带路径或末尾斜杠。
 
-## 说明
+生产环境使用 HTTPS、可信 WSGI 服务器（例如 `gunicorn "app:create_app()"`），不要启用本地 HTTP 模式。应用内限流作用域是单进程；多进程部署应在可信网关落实共享的全局预算与频率限制。完整接口和权限矩阵见 [RBAC 设计](RBAC-DESIGN.md)。
 
-- 开发服务器以 `debug=True` 运行。生产环境请使用 WSGI 服务器，例如 Gunicorn：
-  `gunicorn "app:app"`。
+## 恢复管理员
+
+停止应用并确认目标数据库后，在项目根目录运行 `.\.venv\Scripts\python.exe -X utf8 bootstrap.py --recover-admin admin`（将 `admin` 换成实际管理员用户名）。按提示输入并确认新密码。该命令只恢复已经拥有管理员角色的账号，并撤销其旧会话；不会提升普通用户。
+
+## 自动化测试
+
+```powershell
+.\.venv\Scripts\python.exe -X utf8 -m unittest -v
+```
+
+使用临时 SQLite 库和 LLM 替身，不修改真实任务数据，也不调用付费模型。

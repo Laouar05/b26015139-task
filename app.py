@@ -1,260 +1,285 @@
-"""Flask application entry point and REST API for the Task Manager."""
+"""Task Studio application factory and task / AI API."""
 from datetime import datetime
+import logging
+from urllib.parse import urlsplit
 
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, g, jsonify, render_template, request
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
+from werkzeug.exceptions import HTTPException
 
-from config import Config
+from api_common import ApiError, fields, invalid, json_body, valid_id
+from auth import init_auth, new_snapshot, permission_required, rate_limits, require_permissions, start_write
+from bootstrap import BootstrapError, initialize_database
+from config import Config, sqlite_url
 from llm import LLMError, chat_reply, decompose_task, recommend_tasks, validate_task_batch
-from models import db, Task
+from models import Task, db, enable_sqlite_foreign_keys
+from rbac import READ, WRITE, bp as admin_bp, get_task_or_404, task_missing, task_scope
+
+
+def text_field(value, limit, label, *, required=False):
+    if not isinstance(value, str):
+        raise invalid(f'{label}必须为文本。')
+    value = value.strip()
+    if len(value) > limit or required and not value:
+        raise invalid(f'{label}长度无效（最多 {limit} 个字符）。')
+    try:
+        value.encode('utf-8')
+    except UnicodeError:
+        raise invalid(f'{label}含无效字符。') from None
+    return value
 
 
 def validate_chat_messages(entries):
     if not isinstance(entries, list) or not 1 <= len(entries) <= 17 or len(entries) % 2 == 0:
-        raise ValueError("请提供当前消息和最多 8 轮历史对话。")
+        raise invalid('请提供当前消息和最多 8 轮历史对话。')
     messages = []
     for index, entry in enumerate(entries):
-        role, limit = ("user", 2000) if index % 2 == 0 else ("assistant", 4000)
-        if not isinstance(entry, dict) or entry.get("role") != role:
-            raise ValueError("对话消息须按用户和 AI 的顺序交替排列。")
-        content = entry.get("content")
-        if not isinstance(content, str) or not 1 <= len(content.strip()) <= limit:
-            raise ValueError(f"第 {index + 1} 条消息须为 1 至 {limit} 个字符。")
-        content = content.strip()
-        try:
-            content.encode("utf-8")
-        except UnicodeError as exc:
-            raise ValueError("聊天消息含有无效字符。") from exc
-        messages.append({"role": role, "content": content})
+        role, limit = ('user', 2000) if index % 2 == 0 else ('assistant', 4000)
+        fields(entry, ('role', 'content'))
+        if entry.get('role') != role:
+            raise invalid('对话消息须按用户和 AI 的顺序交替排列。')
+        messages.append(dict(role=role, content=text_field(entry.get('content'), limit, '对话消息', required=True)))
     return messages
 
 
-def create_app():
-    """Application factory: configure the app, bind the DB, register routes."""
+def create_app(overrides=None):
     app = Flask(__name__)
-    app.config.from_object(Config)
+    app.logger.setLevel(logging.INFO)
+    app.config.from_mapping(Config.from_env())
+    app.config.update(overrides or {})
+    secret = app.config['SECRET_KEY']
+    if not isinstance(secret, str) or len(secret.encode('utf-8')) < 32:
+        raise ValueError('SECRET_KEY 须为独立高熵密钥（至少 32 字节）。本地请通过 start.bat 启动。')
+    app.config['SQLALCHEMY_DATABASE_URI'] = sqlite_url(app.config['SQLALCHEMY_DATABASE_URI'])
+    origin = app.config['TASK_STUDIO_ORIGIN']
+    if origin:
+        origin_parts = urlsplit(origin)
+        if origin_parts.scheme not in ('http', 'https') or not origin_parts.hostname or origin_parts.username or origin_parts.path or origin_parts.query or origin_parts.fragment:
+            raise ValueError('TASK_STUDIO_ORIGIN 须为不带路径的站点来源。')
 
-    # Bind the SQLAlchemy extension to this app and ensure tables exist.
+    @app.before_request
+    def trusted_host():
+        if origin and request.host.lower() != origin_parts.netloc.lower():
+            raise ApiError(400, 'INVALID_HOST', '站点地址不匹配。')
+
     db.init_app(app)
     with app.app_context():
-        db.create_all()
-
-    _register_routes(app)
-    _register_error_handlers(app)
+        enable_sqlite_foreign_keys(db.engine)
+        try:
+            initialize_database(app)
+        except Exception:
+            db.engine.dispose()
+            raise
+    app.config.pop('RBAC_BOOTSTRAP_ADMIN_PASSWORD', None)
+    init_auth(app)
+    app.register_blueprint(admin_bp)
+    register_routes(app)
+    register_errors(app)
     return app
 
 
-def _register_routes(app):
-    # ---- HTML page -------------------------------------------------------
-    @app.route("/")
+def begin_ai():
+    rate_limits().take((('ai-user', g.current_user.id), 10), (('ai-global',), 60))
+    db.session.remove()
+
+
+def register_routes(app):
+    @app.get('/')
     def index():
-        return render_template("index.html")
+        return render_template('index.html')
 
-    @app.post("/api/chat")
+    @app.post('/api/chat')
+    @permission_required('ai:chat')
     def chat():
-        if not request.is_json:
-            return jsonify({"error": "请输入有效的 JSON 对象。"}), 400
-        limit = 768 * 1024
-        raw = request.stream.read(limit + 1)
-        if len(raw) > limit:
-            return jsonify({"error": "对话请求过长。"}), 413
-        try:
-            data = app.json.loads(raw)
-        except (ValueError, RecursionError):
-            return jsonify({"error": "请输入有效的 JSON 对象。"}), 400
-        if not isinstance(data, dict):
-            return jsonify({"error": "请输入有效的 JSON 对象。"}), 400
-        try:
-            messages = validate_chat_messages(data.get("messages"))
-        except ValueError as exc:
-            return jsonify({"error": str(exc)}), 400
-
-        task_id = data.get("task_id")
+        data = json_body('messages', 'task_id')
+        messages = validate_chat_messages(data.get('messages'))
         context = None
+        task_id = data.get('task_id')
         if task_id is not None:
-            if type(task_id) is not int or not 0 < task_id <= 2**63 - 1:
-                return jsonify({"error": "计划 ID 无效。"}), 400
-            task = db.session.get(Task, task_id)
-            if task is None:
-                return jsonify({"error": "计划不存在或已删除。"}), 404
-            context = {
-                "title": task.title,
-                "description": (task.description or "")[:4000],
-                "completed": task.completed,
-            }
-            db.session.remove()
-        try:
-            reply = chat_reply(app.config, messages, context)
-        except LLMError as exc:
-            return jsonify({"error": str(exc)}), exc.status
-        return jsonify({"reply": reply})
+            require_permissions(*READ)
+            if not valid_id(task_id):
+                raise invalid('任务 ID 无效。')
+            task = get_task_or_404(task_id, g.current_user, 'read')
+            context = dict(title=task.title, description=(task.description or '')[:4000], completed=task.completed)
+        begin_ai()
+        reply = chat_reply(app.config, messages, context)
+        actor = new_snapshot('ai:chat', *READ) if context is not None else new_snapshot('ai:chat')
+        if context is not None:
+            get_task_or_404(task_id, actor, 'read')
+        return jsonify(reply=reply)
 
-    # ---- Task API --------------------------------------------------------
-
-    @app.post("/api/recommendations/today")
+    @app.post('/api/recommendations/today')
+    @permission_required('ai:recommend', *READ)
     def today_recommendations():
-        data = request.get_json(silent=True)
-        if not isinstance(data, dict):
-            return jsonify({"error": "请输入有效的 JSON 对象。"}), 400
-        context = data.get("context", "")
-        if not isinstance(context, str) or len(context.strip()) > 300:
-            return jsonify({"error": "今天的安排最多填写 300 个字符。"}), 400
-
-        stmt = (
-            select(Task.id, Task.title, Task.description)
-            .where(Task.completed.is_(False))
-            .order_by(Task.created_at.desc(), Task.id.desc())
-        )
-        tasks = [
-            {"id": task_id, "title": title, "description": (description or "")[:1000]}
-            for task_id, title, description in db.session.execute(stmt)
-        ]
+        data = json_body('context', 'scope')
+        context = text_field(data.get('context', ''), 300, '今天的安排')
+        scope = data.get('scope', 'own')
+        if scope not in ('own', 'all'):
+            raise invalid('任务范围无效。')
+        codes = ('ai:recommend', *READ, *(['task:read_all'] if scope == 'all' else []))
+        actor = require_permissions(*codes)
+        stmt = select(Task.id, Task.title, Task.description).where(Task.completed.is_(False))
+        stmt = task_scope(stmt, actor, 'read', own_only=scope == 'own')
+        rows = db.session.execute(stmt.order_by(Task.created_at.desc(), Task.id.desc()).limit(30))
+        tasks = [dict(id=task_id, title=title, description=(description or '')[:1000])
+                 for task_id, title, description in rows]
         if not tasks:
-            return jsonify({"recommendations": []})
+            return jsonify(recommendations=[])
+        begin_ai()
+        recommendations = recommend_tasks(app.config, tasks, context, datetime.now().astimezone().isoformat(timespec='minutes'))
+        actor = new_snapshot(*codes)
+        ids = {task['id'] for task in tasks}
+        recheck = task_scope(select(Task.id).where(Task.id.in_(ids)), actor, 'read', own_only=scope == 'own')
+        if set(db.session.scalars(recheck)) != ids:
+            raise task_missing()
+        return jsonify(recommendations=recommendations)
 
-        try:
-            recommendations = recommend_tasks(
-                app.config, tasks, context.strip(), datetime.now().astimezone().isoformat(timespec="minutes")
-            )
-        except LLMError as exc:
-            return jsonify({"error": str(exc)}), exc.status
-        return jsonify({"recommendations": recommendations})
-
-    @app.post("/api/tasks/decompose")
+    @app.post('/api/tasks/decompose')
+    @permission_required('ai:decompose')
     def draft_tasks():
-        data = request.get_json(silent=True)
-        goal = data.get("goal") if isinstance(data, dict) else None
-        if not isinstance(goal, str) or not 1 <= len(goal.strip()) <= 2000:
-            return jsonify({"error": "请输入大任务目标（1 至 2000 个字符）。"}), 400
-        try:
-            goal = goal.strip()
-            goal.encode("utf-8")
-            tasks = decompose_task(app.config, goal)
-        except UnicodeError:
-            return jsonify({"error": "大任务目标含有无效字符。"}), 400
-        except LLMError as exc:
-            return jsonify({"error": str(exc)}), exc.status
-        return jsonify({"tasks": tasks})
+        goal = text_field(json_body('goal').get('goal'), 2000, '大任务目标', required=True)
+        begin_ai()
+        tasks = decompose_task(app.config, goal)
+        new_snapshot('ai:decompose')
+        return jsonify(tasks=tasks)
 
-    @app.post("/api/tasks/batch")
+    @app.post('/api/tasks/batch')
+    @permission_required('task:write')
     def create_tasks():
-        data = request.get_json(silent=True)
+        entries = json_body('tasks').get('tasks')
+        if isinstance(entries, list) and len(entries) <= 10:
+            for entry in entries:
+                fields(entry, ('title', 'description'))
         try:
-            entries = validate_task_batch(data.get("tasks") if isinstance(data, dict) else None)
+            entries = validate_task_batch(entries)
         except ValueError as exc:
-            return jsonify({"error": str(exc)}), 400
-
-        tasks = [Task(**entry) for entry in entries]
+            raise invalid(str(exc)) from exc
+        owner_id = start_write('task:write').id
+        tasks = [Task(owner_id=owner_id, **entry) for entry in entries]
         db.session.add_all(reversed(tasks))
+        db.session.flush()
+        result = [task.to_dict() for task in tasks]
         db.session.commit()
-        return jsonify({"tasks": [task.to_dict() for task in tasks]}), 201
+        return jsonify(tasks=result), 201
 
-    @app.route("/api/tasks", methods=["GET"])
+    @app.get('/api/tasks')
+    @permission_required(*READ)
     def list_tasks():
-        """List tasks. Optional ?status=all|active|completed filter."""
-        status = request.args.get("status", "all")
-        stmt = select(Task)
-        if status == "active":
-            stmt = stmt.where(Task.completed.is_(False))
-        elif status == "completed":
-            stmt = stmt.where(Task.completed.is_(True))
-        stmt = stmt.order_by(Task.created_at.desc(), Task.id.desc())
-        tasks = db.session.scalars(stmt).all()
-        return jsonify([t.to_dict() for t in tasks])
+        status = request.args.get('status', 'all')
+        stmt = task_scope(select(Task), g.current_user, 'read')
+        if status in ('active', 'completed'):
+            stmt = stmt.where(Task.completed.is_(status == 'completed'))
+        return jsonify([task.to_dict() for task in db.session.scalars(stmt.order_by(Task.created_at.desc(), Task.id.desc()))])
 
-    @app.route("/api/tasks", methods=["POST"])
+    @app.post('/api/tasks')
+    @permission_required('task:write')
     def create_task():
-        """Create a new task from JSON body {title, description?}."""
-        data = request.get_json(silent=True) or {}
-        title = (data.get("title") or "").strip()
-        if not title:
-            return jsonify({"error": "标题为必填项"}), 400
-        if len(title) > 200:
-            return jsonify({"error": "标题过长（最多 200 个字符）"}), 400
-
-        description = (data.get("description") or "").strip()
-        task = Task(title=title, description=description)
+        data = json_body('title', 'description')
+        title = text_field(data.get('title'), 200, '标题', required=True)
+        description = text_field(data.get('description', ''), 10000, '描述')
+        owner_id = start_write('task:write').id
+        task = Task(title=title, description=description, owner_id=owner_id)
         db.session.add(task)
-        db.session.commit()
-        return jsonify(task.to_dict()), 201
+        return save_task(task), 201
 
-    @app.route("/api/tasks/<int:task_id>", methods=["GET"])
+    @app.get('/api/tasks/<int:task_id>')
+    @permission_required(*READ)
     def get_task(task_id):
-        task = db.session.get(Task, task_id)
-        if task is None:
-            return jsonify({"error": "任务不存在"}), 404
-        return jsonify(task.to_dict())
+        return jsonify(get_task_or_404(task_id, g.current_user, 'read').to_dict())
 
-    @app.route("/api/tasks/<int:task_id>", methods=["PUT"])
+    @app.put('/api/tasks/<int:task_id>')
+    @permission_required(*WRITE)
     def update_task(task_id):
-        """Update title / description / completed (partial update supported)."""
-        task = db.session.get(Task, task_id)
-        if task is None:
-            return jsonify({"error": "任务不存在"}), 404
+        actor = start_write(*WRITE)
+        task = get_task_or_404(task_id, actor, 'write')
+        data = json_body('title', 'description', 'completed')
+        if 'title' in data:
+            task.title = text_field(data['title'], 200, '标题', required=True)
+        if 'description' in data:
+            task.description = text_field(data['description'], 10000, '描述')
+        if 'completed' in data:
+            if type(data['completed']) is not bool:
+                raise invalid('完成状态须为布尔值。')
+            task.completed = data['completed']
+        return save_task(task)
 
-        data = request.get_json(silent=True) or {}
-        if "title" in data:
-            title = (data.get("title") or "").strip()
-            if not title:
-                return jsonify({"error": "标题不能为空"}), 400
-            if len(title) > 200:
-                return jsonify({"error": "标题过长（最多 200 个字符）"}), 400
-            task.title = title
-        if "description" in data:
-            task.description = (data.get("description") or "").strip()
-        if "completed" in data:
-            task.completed = bool(data.get("completed"))
-
-        db.session.commit()
-        return jsonify(task.to_dict())
-
-    @app.route("/api/tasks/<int:task_id>/toggle", methods=["PATCH"])
+    @app.patch('/api/tasks/<int:task_id>/toggle')
+    @permission_required(*WRITE)
     def toggle_task(task_id):
-        """Flip the completed flag."""
-        task = db.session.get(Task, task_id)
-        if task is None:
-            return jsonify({"error": "任务不存在"}), 404
+        actor = start_write(*WRITE)
+        task = get_task_or_404(task_id, actor, 'write')
+        if request.content_length or request.is_json:
+            json_body()
         task.completed = not task.completed
-        db.session.commit()
-        return jsonify(task.to_dict())
+        return save_task(task)
 
-    @app.route("/api/tasks/<int:task_id>", methods=["DELETE"])
+    @app.delete('/api/tasks/<int:task_id>')
+    @permission_required(*WRITE)
     def delete_task(task_id):
-        task = db.session.get(Task, task_id)
-        if task is None:
-            return jsonify({"error": "任务不存在"}), 404
+        actor = start_write(*WRITE)
+        task = get_task_or_404(task_id, actor, 'write')
+        if request.content_length or request.is_json:
+            json_body()
         db.session.delete(task)
         db.session.commit()
-        return "", 204
+        return '', 204
 
 
-def _register_error_handlers(app):
-    def _wants_json():
-        return request.path.startswith("/api/")
+def save_task(task):
+    db.session.flush()
+    result = jsonify(task.to_dict())
+    db.session.commit()
+    return result
 
-    @app.errorhandler(404)
-    def not_found(_e):
-        if _wants_json():
-            return jsonify({"error": "资源不存在"}), 404
-        return "页面未找到", 404
 
-    @app.errorhandler(405)
-    def method_not_allowed(_e):
-        if _wants_json():
-            return jsonify({"error": "请求方法不允许"}), 405
-        return "请求方法不允许", 405
+def register_errors(app):
+    @app.after_request
+    def no_store(response):
+        if request.path.startswith('/api/'):
+            response.headers['Cache-Control'] = 'no-store'
+        return response
 
-    @app.errorhandler(500)
-    def server_error(_e):
+    @app.errorhandler(ApiError)
+    def api_error(exc):
         db.session.rollback()
-        if _wants_json():
-            return jsonify({"error": "服务器内部错误"}), 500
-        return "服务器内部错误", 500
+        return exc.response()
+
+    @app.errorhandler(LLMError)
+    def llm_error(exc):
+        if exc.status == 503:
+            return ApiError(503, 'AI_UNAVAILABLE', 'AI 服务未配置或暂不可用。').response()
+        if exc.status == 504:
+            return ApiError(504, 'AI_UPSTREAM_ERROR', 'AI 服务响应超时，请稍后重试。').response()
+        return ApiError(502, 'AI_UPSTREAM_ERROR', 'AI 服务返回异常，请稍后重试。').response()
+
+    @app.errorhandler(HTTPException)
+    def http_error(exc):
+        if not request.path.startswith('/api/'):
+            return exc
+        code, message = {
+            404: ('NOT_FOUND', '资源不存在。'), 405: ('METHOD_NOT_ALLOWED', '请求方法不允许。'),
+            413: ('REQUEST_TOO_LARGE', '请求体过长。'), 500: ('INTERNAL_ERROR', '服务器内部错误。'),
+        }.get(exc.code, ('HTTP_ERROR', '请求失败。'))
+        db.session.rollback()
+        response = ApiError(exc.code, code, message).response()
+        allow = exc.get_response().headers.get('Allow')
+        if allow:
+            response.headers['Allow'] = allow
+        return response
+
+    @app.errorhandler(OperationalError)
+    def database_error(exc):
+        db.session.rollback()
+        if getattr(exc.orig, 'sqlite_errorcode', 0) & 0xff in (5, 6):
+            return ApiError(503, 'DB_BUSY', '数据库繁忙，请重试。').response()
+        app.logger.error('SQLite operation failed: %s', getattr(exc.orig, 'sqlite_errorname', 'unknown'))
+        return ApiError(500, 'INTERNAL_ERROR', '服务器内部错误。').response()
 
 
-app = create_app()
-
-
-if __name__ == "__main__":
-    # Development server. For production use a WSGI server (e.g. gunicorn).
-    app.run(debug=True, host="127.0.0.1", port=5000)
+if __name__ == '__main__':
+    try:
+        application = create_app()
+    except (BootstrapError, ValueError, OSError, OperationalError) as exc:
+        raise SystemExit(f'启动失败：{exc}') from None
+    application.run(debug=False, host='127.0.0.1', port=5000)

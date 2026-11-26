@@ -2383,6 +2383,27 @@ textarea {
   100% { box-shadow: var(--shadow-xs); }
 }
 
+[data-auth-pending] :is(.sidebar, .header-tools, .mobile-filters, #composer-card, .tasks-section, #ai-studio, #mobile-chat-btn) { display: none !important; }
+.account-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.account-strip > span { margin-right: auto; overflow-wrap: anywhere; }
+.studio-shell.without-ai { grid-template-columns: 248px minmax(0, 1fr); }
+.access-dialog { color: inherit; border: 0; width: min(450px, calc(100% - 32px)); max-height: 90dvh; }
+.access-dialog::backdrop { background: rgb(18 24 23 / .5); }
+.access-dialog.access-drawer { background: var(--surface, Canvas); position: fixed; margin: 0 0 0 auto; inset: 0; width: min(490px, 100%); max-width: none; max-height: 100dvh; height: 100dvh; padding: 0; }
+.access-body { display: grid; align-content: start; gap: 18px; padding: 20px; }
+.access-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.access-actions .field-input { flex: 1 1 160px; width: auto; }
+.access-list { display: grid; gap: 5px; list-style: none; padding: 0; }
+.access-list button { width: 100%; text-align: left; justify-content: start; }
+#admin-edit { margin-top: 16px; }
+#admin-role-fields { border: 0; padding: 0; margin: 8px 0; }
+#admin-role-options { display: flex; flex-wrap: wrap; gap: 10px; }
+#admin-role-fields p { margin: 8px 0; }
+#admin-roles details { margin-top: 6px; }
+#transfer-form { display: grid; gap: 6px; }
+@media (max-width: 1180px) { .studio-shell.without-ai { grid-template-columns: 232px minmax(0, 1fr); } }
+@media (max-width: 860px) { .studio-shell.without-ai { grid-template-columns: minmax(0, 1fr); } }
+
 /* ==========================================================================
    Responsive Breakpoints
    ========================================================================== */
