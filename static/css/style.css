@@ -1777,13 +1777,11 @@ textarea {
   inset: 0;
   z-index: 60;
   background: var(--backdrop);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 20px;
-  animation: fade-in 0.2s var(--ease-out);
+  animation: fade-in 0.18s var(--ease-out);
 }
 
 .modal-card {
@@ -1898,9 +1896,7 @@ textarea {
   inset: 0;
   z-index: 70;
   background: var(--backdrop);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  animation: fade-in 0.22s var(--ease-out);
+  animation: fade-in 0.18s var(--ease-out);
 }
 
 .chat-drawer {
@@ -2604,9 +2600,7 @@ textarea {
 
 .access-dialog::backdrop {
   background: var(--backdrop);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  animation: fade-in 0.2s var(--ease-out);
+  animation: fade-in 0.18s var(--ease-out);
 }
 
 /* Auth Modal */
@@ -3077,6 +3071,202 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* AI Active Chip in AI Studio */
+.studio-badge-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ai-active-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--ink-muted);
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-active-chip::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--sage);
+  flex: none;
+}
+
+.ai-active-chip.is-empty::before {
+  background: var(--ink-faint);
+}
+
+/* Admin Drawer Tabs & AI Providers Panel */
+.admin-tab-bar {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.admin-tab-bar .seg-tab {
+  width: 100%;
+  padding: 7px 12px;
+  border-radius: var(--r-sm);
+  text-align: center;
+}
+
+.admin-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.admin-pane[hidden] {
+  display: none !important;
+}
+
+.provider-active-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--sage-soft);
+  border: 1px solid var(--sage-border);
+  color: var(--sage);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.provider-active-banner.is-empty {
+  background: var(--surface-tint);
+  border-color: var(--border);
+  color: var(--ink-muted);
+  font-weight: 500;
+}
+
+.provider-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  list-style: none;
+  padding: 0;
+}
+
+.provider-empty {
+  padding: 14px;
+  border-radius: var(--r-md);
+  border: 1px dashed var(--border-strong);
+  text-align: center;
+  font-size: 0.82rem;
+  color: var(--ink-muted);
+}
+
+.provider-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 13px 14px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  transition: border-color 0.16s, box-shadow 0.16s;
+}
+
+.provider-card.is-active {
+  border-color: var(--sage-border);
+  box-shadow: var(--shadow-xs);
+}
+
+.provider-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.provider-card-title-wrap {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.provider-card-name {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--ink);
+  word-break: break-word;
+}
+
+.provider-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.76rem;
+  color: var(--ink-muted);
+  word-break: break-all;
+}
+
+.provider-meta strong {
+  color: var(--ink-secondary);
+  font-weight: 600;
+}
+
+.provider-card-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.provider-card-actions .btn-danger-text {
+  margin-left: auto;
+  color: var(--danger);
+}
+
+.provider-card-actions .btn-danger-text:hover {
+  background: var(--danger-soft);
+}
+
+.provider-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.provider-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.provider-activate-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--ink-secondary);
+  cursor: pointer;
+}
+
+.provider-activate-check input {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
 }
 
 @media (max-width: 1180px) {

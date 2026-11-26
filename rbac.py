@@ -1,10 +1,26 @@
 """Task data scopes and administrator operations."""
+from urllib.parse import urlsplit
+
 from flask import Blueprint, current_app, g, jsonify, request
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from api_common import ApiError, invalid, json_body, valid_id
 from auth import permission_required, require_permissions, start_write
-from models import Role, Task, User, db, timestamp_to_iso, user_roles, utcnow
+from llm import ModelListError, PROVIDER_TYPES, _is_local_url, list_models
+from models import AIProvider, Role, Task, User, db, timestamp_to_iso, user_roles, utcnow
+
+
+def text_field(value, limit, label, *, required=False):
+    if not isinstance(value, str):
+        raise invalid(f'{label}必须为文本。')
+    value = value.strip()
+    if len(value) > limit or (required and not value):
+        raise invalid(f'{label}长度无效（最多 {limit} 个字符）。')
+    try:
+        value.encode('utf-8')
+    except UnicodeError as exc:
+        raise invalid(f'{label}含无效字符。') from exc
+    return value
 
 bp = Blueprint('admin', __name__, url_prefix='/api/admin')
 READ = ('task:read',)
@@ -175,3 +191,187 @@ def transfer_task(task_id):
     db.session.commit()
     audit('task.owner', actor_id, task_id, f'{old_owner}->{owner_id}')
     return jsonify(result)
+
+
+def validate_provider_url(value):
+    url_text = text_field(value, 500, 'API 基础地址', required=True)
+    parsed = urlsplit(url_text)
+    if parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.query or parsed.fragment:
+        raise invalid('请输入有效的 HTTP/HTTPS API 基础地址（不含查询参数）。')
+    return url_text.rstrip('/')
+
+
+def validate_provider_type(value):
+    kind = (value if isinstance(value, str) else '').strip().lower()
+    if kind not in PROVIDER_TYPES:
+        raise invalid('接口协议仅支持 openai 或 gemini。')
+    return kind
+
+
+def validate_provider_model(value):
+    model = text_field(value, 120, '模型名称', required=True)
+    if not model.isprintable():
+        raise invalid('模型名称含无效字符。')
+    return model
+
+
+def validate_provider_key(value, provider_type, base_url):
+    key = text_field(value if value is not None else '', 500, 'API 密钥')
+    needs_key = not (provider_type == 'openai' and _is_local_url(base_url))
+    if needs_key and not key:
+        raise invalid('请填写 API 密钥（仅本机 OpenAI 兼容服务可留空）。')
+    return key
+
+
+def get_provider_or_404(provider_id):
+    provider = db.session.get(AIProvider, provider_id) if valid_id(provider_id) else None
+    if provider is None:
+        raise ApiError(404, 'PROVIDER_NOT_FOUND', 'AI 提供商不存在。')
+    return provider
+
+
+def env_llm_summary():
+    cfg = current_app.config
+    base = (cfg.get('LLM_BASE_URL') or '').strip()
+    key = (cfg.get('LLM_API_KEY') or '').strip()
+    model = (cfg.get('LLM_MODEL') or '').strip()
+    configured = bool(base and model and (key or _is_local_url(base)))
+    return dict(configured=configured, model=model if configured else '', base_url=base if configured else '')
+
+
+@bp.get('/ai-providers')
+@permission_required('role:manage')
+def list_ai_providers():
+    providers = db.session.scalars(
+        select(AIProvider).order_by(AIProvider.is_active.desc(), AIProvider.id.asc())
+    ).all()
+    return jsonify(items=[p.to_dict() for p in providers], env_fallback=env_llm_summary())
+
+
+@bp.post('/ai-providers')
+@permission_required('role:manage')
+def create_ai_provider():
+    data = json_body('name', 'provider_type', 'base_url', 'api_key', 'model', 'activate')
+    name = text_field(data.get('name'), 80, '提供商名称', required=True)
+    provider_type = validate_provider_type(data.get('provider_type', 'openai'))
+    base_url = validate_provider_url(data.get('base_url'))
+    api_key = validate_provider_key(data.get('api_key', ''), provider_type, base_url)
+    model = validate_provider_model(data.get('model'))
+    activate = data.get('activate', True)
+    if type(activate) is not bool:
+        raise invalid('activate 必须为布尔值。')
+
+    actor = start_write('role:manage')
+    actor_id = actor.id
+    if activate:
+        db.session.execute(update(AIProvider).values(is_active=False))
+    provider = AIProvider(
+        name=name, provider_type=provider_type, base_url=base_url,
+        api_key=api_key, model=model, is_active=activate,
+    )
+    db.session.add(provider)
+    db.session.flush()
+    result = provider.to_dict()
+    db.session.commit()
+    audit('ai_provider.create', actor_id, result['id'], f'{provider_type}:{model}:active={activate}')
+    return jsonify(result), 201
+
+
+@bp.put('/ai-providers/<int:provider_id>')
+@permission_required('role:manage')
+def update_ai_provider(provider_id):
+    data = json_body('name', 'provider_type', 'base_url', 'api_key', 'clear_api_key', 'model', 'activate')
+    actor = start_write('role:manage')
+    actor_id = actor.id
+    provider = get_provider_or_404(provider_id)
+
+    name = text_field(data['name'], 80, '提供商名称', required=True) if 'name' in data else provider.name
+    provider_type = validate_provider_type(data['provider_type']) if 'provider_type' in data else provider.provider_type
+    base_url = validate_provider_url(data['base_url']) if 'base_url' in data else provider.base_url
+    model = validate_provider_model(data['model']) if 'model' in data else provider.model
+
+    clear_key = data.get('clear_api_key', False)
+    if type(clear_key) is not bool:
+        raise invalid('clear_api_key 必须为布尔值。')
+    if clear_key:
+        raw_key = ''
+    elif 'api_key' in data and isinstance(data['api_key'], str) and data['api_key'].strip():
+        raw_key = data['api_key']
+    elif 'api_key' in data and not isinstance(data['api_key'], str):
+        raise invalid('API 密钥须为文本。')
+    else:
+        raw_key = provider.api_key
+    api_key = validate_provider_key(raw_key, provider_type, base_url)
+
+    provider.name = name
+    provider.provider_type = provider_type
+    provider.base_url = base_url
+    provider.api_key = api_key
+    provider.model = model
+    if 'activate' in data:
+        if type(data['activate']) is not bool:
+            raise invalid('activate 必须为布尔值。')
+        if data['activate']:
+            db.session.execute(update(AIProvider).where(AIProvider.id != provider.id).values(is_active=False))
+            provider.is_active = True
+        else:
+            provider.is_active = False
+
+    db.session.flush()
+    result = provider.to_dict()
+    db.session.commit()
+    audit('ai_provider.update', actor_id, provider_id, f'{provider_type}:{model}')
+    return jsonify(result)
+
+
+@bp.post('/ai-providers/<int:provider_id>/activate')
+@permission_required('role:manage')
+def activate_ai_provider(provider_id):
+    if request.content_length or request.is_json:
+        json_body()
+    actor = start_write('role:manage')
+    actor_id = actor.id
+    provider = get_provider_or_404(provider_id)
+    db.session.execute(update(AIProvider).values(is_active=False))
+    provider.is_active = True
+    db.session.flush()
+    result = provider.to_dict()
+    db.session.commit()
+    audit('ai_provider.activate', actor_id, provider_id, f'{provider.provider_type}:{provider.model}')
+    return jsonify(result)
+
+
+@bp.delete('/ai-providers/<int:provider_id>')
+@permission_required('role:manage')
+def delete_ai_provider(provider_id):
+    if request.content_length or request.is_json:
+        json_body()
+    actor = start_write('role:manage')
+    actor_id = actor.id
+    provider = get_provider_or_404(provider_id)
+    db.session.delete(provider)
+    db.session.commit()
+    audit('ai_provider.delete', actor_id, provider_id, 'deleted')
+    return '', 204
+
+
+@bp.post('/ai-providers/models')
+@permission_required('role:manage')
+def fetch_ai_provider_models():
+    data = json_body('provider_type', 'base_url', 'api_key', 'provider_id')
+    provider_type = validate_provider_type(data.get('provider_type', 'openai'))
+    base_url = validate_provider_url(data.get('base_url'))
+    raw_key = data.get('api_key', '')
+    if not isinstance(raw_key, str):
+        raise invalid('API 密钥须为文本。')
+    api_key = raw_key.strip()
+    if not api_key and data.get('provider_id') is not None:
+        stored = get_provider_or_404(data.get('provider_id'))
+        api_key = stored.api_key
+    api_key = validate_provider_key(api_key, provider_type, base_url)
+    db.session.remove()
+    try:
+        models = list_models(base_url, api_key, provider_type=provider_type)
+    except ModelListError as exc:
+        raise ApiError(502, 'AI_UPSTREAM_ERROR', str(exc)) from exc
+    return jsonify(models=models)

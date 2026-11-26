@@ -205,7 +205,7 @@ def configure_local(env):
         raise ValueError('环境变量 SECRET_KEY 太短，至少需要 32 字节。')
     url = sqlite_url(env.get('DATABASE_URL') or DEFAULT_DATABASE_URI)
     state = inspect_database(url.database)
-    if state == 'ready':
+    if state in ('ready', 'v1'):
         env.pop('RBAC_BOOTSTRAP_ADMIN_PASSWORD', None)
         env.pop('RBAC_BOOTSTRAP_ADMIN_USERNAME', None)
         return

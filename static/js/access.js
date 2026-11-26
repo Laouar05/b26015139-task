@@ -140,6 +140,8 @@ function clearPrivateData() {
   access('transfer-task-name').textContent = '';
   adminTarget = transferTask = null;
   roleCatalog = [];
+  const aiChip = access('ai-active-chip');
+  if (aiChip) { aiChip.hidden = true; aiChip.textContent = ''; }
   updateProgressAndBadges();
   changeFilter('all');
 }
@@ -201,6 +203,9 @@ function applyIdentity(data) {
   if (data?.csrf_token) authState.csrf = data.csrf_token;
   renderPermissions();
   if (changed && hasPermissions('task:read')) loadTasks();
+  if (changed && authState.user && (hasPermissions('ai:chat') || canUseTab('recommend') || canUseTab('breakdown'))) {
+    loadActiveAiChip();
+  }
 }
 
 function refreshIdentity() {
@@ -456,6 +461,8 @@ access('admin-open').addEventListener('click', async () => {
   access('admin-list').replaceChildren();
   access('admin-roles').replaceChildren();
   adminFeedback('');
+  access('admin-tab-providers').hidden = !hasPermissions('role:manage');
+  switchAdminTab('users');
   adminDialog.showModal();
   if (hasPermissions('role:manage')) {
     try {
@@ -549,6 +556,316 @@ access('transfer-form').addEventListener('submit', async (event) => {
     if (error.name !== 'AbortError') transferFeedback(error.message);
   } finally {
     button.disabled = !target.value;
+  }
+});
+
+/* ---------- Active AI Chip & Admin AI Providers ---------- */
+const PROVIDER_PRESETS = {
+  deepseek: { name: 'DeepSeek', provider_type: 'openai', base_url: 'https://api.deepseek.com', model: 'deepseek-chat' },
+  gemini: { name: 'Google Gemini', provider_type: 'gemini', base_url: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-2.5-flash' },
+  openai: { name: 'OpenAI', provider_type: 'openai', base_url: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+  siliconflow: { name: '硅基流动', provider_type: 'openai', base_url: 'https://api.siliconflow.cn/v1', model: 'deepseek-ai/DeepSeek-V3' },
+  qwen: { name: '通义千问', provider_type: 'openai', base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
+  ollama: { name: '本地 Ollama', provider_type: 'openai', base_url: 'http://127.0.0.1:11434/v1', model: 'qwen2.5:7b' },
+  custom: { name: '', provider_type: 'openai', base_url: '', model: '' },
+};
+const providerTypeLabels = { openai: 'OpenAI 兼容', gemini: 'Gemini 原生' };
+let editingProviderId = null;
+let providerListVersion = 0;
+
+async function loadActiveAiChip() {
+  const chip = access('ai-active-chip');
+  if (!chip || !authState.user) return;
+  try {
+    const info = await request('/api/ai/active');
+    if (!authState.user) return;
+    chip.hidden = false;
+    if (info.configured) {
+      chip.classList.remove('is-empty');
+      chip.textContent = `${info.name} · ${info.model}`;
+      chip.title = `当前启用模型：${info.name}（${info.model}）`;
+    } else {
+      chip.classList.add('is-empty');
+      chip.textContent = '未配置模型';
+      chip.title = '管理员可在「管理 → AI 提供商」中添加并启用模型';
+    }
+  } catch (error) {
+    if (error.name !== 'AbortError') chip.hidden = true;
+  }
+}
+
+function switchAdminTab(tabName) {
+  const isProviders = tabName === 'providers' && hasPermissions('role:manage');
+  document.querySelectorAll('[data-admin-tab]').forEach((tab) => {
+    const active = tab.dataset.adminTab === (isProviders ? 'providers' : 'users');
+    tab.classList.toggle('is-active', active);
+    tab.setAttribute('aria-selected', String(active));
+  });
+  access('admin-pane-users').hidden = isProviders;
+  access('admin-pane-providers').hidden = !isProviders;
+  adminFeedback('');
+  if (isProviders) {
+    resetProviderForm();
+    loadAiProviders();
+  }
+}
+
+document.querySelectorAll('[data-admin-tab]').forEach((tab) => {
+  tab.addEventListener('click', () => switchAdminTab(tab.dataset.adminTab));
+});
+
+function resetProviderForm() {
+  editingProviderId = null;
+  access('provider-form').reset();
+  access('provider-type').value = 'openai';
+  access('provider-activate').checked = true;
+  access('provider-key').placeholder = '填写 API Key（本机 Ollama 可留空）';
+  access('provider-form-title').textContent = '添加 AI 提供商';
+  access('provider-save').textContent = '保存提供商';
+  access('provider-cancel-edit').hidden = true;
+  const select = access('provider-model-select');
+  select.hidden = true;
+  select.replaceChildren();
+}
+
+function startEditProvider(provider) {
+  editingProviderId = provider.id;
+  access('provider-name').value = provider.name;
+  access('provider-type').value = provider.provider_type;
+  access('provider-url').value = provider.base_url;
+  access('provider-key').value = '';
+  access('provider-key').placeholder = provider.has_api_key
+    ? `已保存密钥（${provider.api_key_preview}），留空保持不变`
+    : '当前无密钥，如需填写请输入';
+  access('provider-model').value = provider.model;
+  access('provider-activate').checked = Boolean(provider.is_active);
+  access('provider-form-title').textContent = `编辑提供商：${provider.name}`;
+  access('provider-save').textContent = '保存修改';
+  access('provider-cancel-edit').hidden = false;
+  const select = access('provider-model-select');
+  select.hidden = true;
+  select.replaceChildren();
+  access('provider-name').focus();
+}
+
+async function loadAiProviders() {
+  const version = ++providerListVersion;
+  try {
+    const { items, env_fallback: envFallback } = await request('/api/admin/ai-providers');
+    if (!adminDialog.open || version !== providerListVersion) return;
+
+    const banner = access('provider-active-banner');
+    const active = items.find((item) => item.is_active);
+    if (active) {
+      banner.classList.remove('is-empty');
+      banner.textContent = `当前启用：${active.name}（${providerTypeLabels[active.provider_type] || active.provider_type} · ${active.model}）`;
+    } else if (envFallback?.configured) {
+      banner.classList.remove('is-empty');
+      banner.textContent = `当前回退使用默认环境配置：${envFallback.model}`;
+    } else {
+      banner.classList.add('is-empty');
+      banner.textContent = '尚未启用任何 AI 提供商，请先在下方添加并启用。';
+    }
+
+    const list = access('provider-list');
+    if (!items.length) {
+      const empty = document.createElement('li');
+      empty.className = 'provider-empty';
+      empty.textContent = '还没有手动添加的 AI 提供商，点下方预设可一键填入常用配置。';
+      list.replaceChildren(empty);
+      return;
+    }
+
+    list.replaceChildren(...items.map((provider) => {
+      const li = document.createElement('li');
+      li.className = `provider-card${provider.is_active ? ' is-active' : ''}`;
+
+      const top = document.createElement('div');
+      top.className = 'provider-card-top';
+
+      const titleWrap = document.createElement('div');
+      titleWrap.className = 'provider-card-title-wrap';
+      const name = document.createElement('span');
+      name.className = 'provider-card-name';
+      name.textContent = provider.name;
+      const typePill = document.createElement('span');
+      typePill.className = `role-pill ${provider.provider_type === 'gemini' ? 'is-admin' : 'is-member'}`;
+      typePill.textContent = providerTypeLabels[provider.provider_type] || provider.provider_type;
+      titleWrap.append(name, typePill);
+
+      const status = document.createElement('span');
+      if (provider.is_active) {
+        status.className = 'user-status-badge';
+        status.textContent = '当前启用';
+      } else {
+        status.className = 'role-pill is-viewer';
+        status.textContent = '备用';
+      }
+      top.append(titleWrap, status);
+
+      const meta = document.createElement('div');
+      meta.className = 'provider-meta';
+      const mLine = document.createElement('div');
+      mLine.innerHTML = `模型：<strong>${escapeHtml(provider.model)}</strong>`;
+      const uLine = document.createElement('div');
+      uLine.textContent = `地址：${provider.base_url}`;
+      const kLine = document.createElement('div');
+      kLine.textContent = `密钥：${provider.has_api_key ? provider.api_key_preview : '未设置（本地免密钥）'}`;
+      meta.append(mLine, uLine, kLine);
+
+      const actions = document.createElement('div');
+      actions.className = 'provider-card-actions';
+
+      if (!provider.is_active) {
+        const useBtn = document.createElement('button');
+        useBtn.type = 'button';
+        useBtn.className = 'btn btn-ink btn-sm';
+        useBtn.textContent = '切换使用';
+        useBtn.addEventListener('click', () => activateProvider(provider, useBtn));
+        actions.append(useBtn);
+      }
+
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'btn btn-subtle btn-sm';
+      editBtn.textContent = '编辑';
+      editBtn.addEventListener('click', () => startEditProvider(provider));
+      actions.append(editBtn);
+
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'btn btn-text btn-sm btn-danger-text';
+      delBtn.textContent = '删除';
+      delBtn.addEventListener('click', () => deleteProvider(provider, delBtn));
+      actions.append(delBtn);
+
+      li.append(top, meta, actions);
+      return li;
+    }));
+  } catch (error) {
+    if (error.name !== 'AbortError' && version === providerListVersion) adminFeedback(error.message);
+  }
+}
+
+async function activateProvider(provider, button) {
+  button.disabled = true;
+  adminFeedback('');
+  try {
+    await request(`/api/admin/ai-providers/${provider.id}/activate`, { method: 'POST' });
+    showToast(`已切换 AI 提供商为「${provider.name}」`, 'success');
+    await Promise.all([loadAiProviders(), loadActiveAiChip()]);
+  } catch (error) {
+    if (error.name !== 'AbortError') adminFeedback(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function deleteProvider(provider, button) {
+  if (!window.confirm(`确定删除 AI 提供商「${provider.name}」吗？`)) return;
+  button.disabled = true;
+  adminFeedback('');
+  try {
+    await request(`/api/admin/ai-providers/${provider.id}`, { method: 'DELETE' });
+    if (editingProviderId === provider.id) resetProviderForm();
+    showToast(`已删除「${provider.name}」`, 'success');
+    await Promise.all([loadAiProviders(), loadActiveAiChip()]);
+  } catch (error) {
+    if (error.name !== 'AbortError') adminFeedback(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+document.querySelectorAll('[data-provider-preset]').forEach((chip) => {
+  chip.addEventListener('click', () => {
+    const preset = PROVIDER_PRESETS[chip.dataset.providerPreset];
+    if (!preset) return;
+    if (editingProviderId !== null) resetProviderForm();
+    access('provider-name').value = preset.name;
+    access('provider-type').value = preset.provider_type;
+    access('provider-url').value = preset.base_url;
+    access('provider-model').value = preset.model;
+    access('provider-key').focus();
+  });
+});
+
+access('provider-new-btn')?.addEventListener('click', () => {
+  resetProviderForm();
+  access('provider-name').focus();
+});
+
+access('provider-cancel-edit')?.addEventListener('click', () => {
+  resetProviderForm();
+  adminFeedback('');
+});
+
+access('provider-model-select')?.addEventListener('change', (event) => {
+  if (event.target.value) access('provider-model').value = event.target.value;
+});
+
+access('provider-fetch-models')?.addEventListener('click', async () => {
+  const btn = access('provider-fetch-models');
+  const select = access('provider-model-select');
+  const baseUrl = access('provider-url').value.trim();
+  const providerType = access('provider-type').value;
+  const apiKey = access('provider-key').value.trim();
+  if (!baseUrl) {
+    adminFeedback('请先填写 API 基础地址再拉取模型列表。');
+    access('provider-url').focus();
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = '拉取中…';
+  adminFeedback('');
+  try {
+    const payload = { provider_type: providerType, base_url: baseUrl, api_key: apiKey };
+    if (!apiKey && editingProviderId !== null) payload.provider_id = editingProviderId;
+    const { models } = await request('/api/admin/ai-providers/models', jsonOptions('POST', payload));
+    select.replaceChildren(
+      new Option(`已拉取 ${models.length} 个模型，点击选择…`, ''),
+      ...models.map((id) => new Option(id, id))
+    );
+    select.hidden = false;
+    if (!access('provider-model').value.trim() && models.length) {
+      access('provider-model').value = models[0];
+      select.value = models[0];
+    }
+    adminFeedback(`成功拉取 ${models.length} 个可用模型。`);
+  } catch (error) {
+    if (error.name !== 'AbortError') adminFeedback(error.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '拉取模型';
+  }
+});
+
+access('provider-form')?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const saveBtn = access('provider-save');
+  const isEdit = editingProviderId !== null;
+  const payload = {
+    name: access('provider-name').value.trim(),
+    provider_type: access('provider-type').value,
+    base_url: access('provider-url').value.trim(),
+    model: access('provider-model').value.trim(),
+    activate: access('provider-activate').checked,
+  };
+  const keyVal = access('provider-key').value.trim();
+  if (keyVal || !isEdit) payload.api_key = keyVal;
+
+  saveBtn.disabled = true;
+  adminFeedback('');
+  try {
+    const path = isEdit ? `/api/admin/ai-providers/${editingProviderId}` : '/api/admin/ai-providers';
+    await request(path, jsonOptions(isEdit ? 'PUT' : 'POST', payload));
+    showToast(isEdit ? 'AI 提供商已更新' : 'AI 提供商已添加', 'success');
+    resetProviderForm();
+    await Promise.all([loadAiProviders(), loadActiveAiChip()]);
+  } catch (error) {
+    if (error.name !== 'AbortError') adminFeedback(error.message);
+  } finally {
+    saveBtn.disabled = false;
   }
 });
 

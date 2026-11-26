@@ -44,6 +44,8 @@ def rate_limits():
 def load_current_user():
     g.current_user = None
     g.permissions = frozenset()
+    if not request.path.startswith('/api/'):
+        return
     uid, version = session.get('uid'), session.get('ver')
     if uid is None and version is None:
         return

@@ -109,3 +109,40 @@ class Task(db.Model):
 
     def __repr__(self):
         return f"<Task {self.id} {self.title!r} completed={self.completed}>"
+
+
+def mask_api_key(value):
+    key = (value or "").strip()
+    if not key:
+        return ""
+    if len(key) <= 8:
+        return "*" * len(key)
+    return f"{key[:4]}••••{key[-4:]}"
+
+
+class AIProvider(db.Model):
+    __tablename__ = "ai_providers"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(80), nullable=False)
+    provider_type = db.Column(db.String(32), nullable=False, default="openai", server_default=text("'openai'"))
+    base_url = db.Column(db.String(500), nullable=False)
+    api_key = db.Column(db.Text, nullable=False, default="", server_default=text("''"))
+    model = db.Column(db.String(120), nullable=False)
+    is_active = db.Column(db.Boolean, nullable=False, default=False, server_default=text("0"))
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "provider_type": self.provider_type,
+            "base_url": self.base_url,
+            "model": self.model,
+            "is_active": self.is_active,
+            "has_api_key": bool((self.api_key or "").strip()),
+            "api_key_preview": mask_api_key(self.api_key),
+            "created_at": timestamp_to_iso(self.created_at),
+            "updated_at": timestamp_to_iso(self.updated_at),
+        }

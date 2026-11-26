@@ -10,9 +10,10 @@ from sqlalchemy import func, select
 from werkzeug.security import generate_password_hash
 
 from credentials import normalize_username, validate_password
-from models import Permission, Role, Task, User, db, role_permissions, user_roles, utcnow
+from models import AIProvider, Permission, Role, Task, User, db, role_permissions, user_roles, utcnow
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+V1_TABLES = {'users', 'roles', 'permissions', 'user_roles', 'role_permissions', 'tasks'}
 LEGACY_COLUMNS = (
     ('id', 'INTEGER', 1, 1), ('title', 'VARCHAR(200)', 1, 0),
     ('description', 'TEXT', 0, 0), ('completed', 'BOOLEAN', 1, 0),
@@ -50,6 +51,14 @@ def schema_state(execute):
         if not expected <= objects or not owner_column or not owner_fk:
             raise BootstrapError('版本标记与数据库结构不符，请检查备份。')
         return 'ready'
+    if version == 1:
+        expected_v1 = {('table', name) for name in V1_TABLES}
+        owner_column = any(row[1] == 'owner_id' and row[3] == 1 for row in execute('PRAGMA table_info(tasks)'))
+        owner_fk = any(row[2:5] == ('users', 'owner_id', 'id') and row[6] == 'RESTRICT'
+                       for row in map(tuple, execute('PRAGMA foreign_key_list(tasks)')))
+        if not expected_v1 <= objects or not owner_column or not owner_fk:
+            raise BootstrapError('版本标记与数据库结构不符，请检查备份。')
+        return 'v1'
     if version != 0:
         raise BootstrapError(f'不支持的数据库版本：{version}。')
     if not objects:
@@ -112,7 +121,10 @@ def initialize_database(app):
                 connection.rollback()
                 connection.exec_driver_sql('BEGIN IMMEDIATE')
                 state = schema_state(connection.exec_driver_sql)
-            if state != 'ready':
+            if state == 'v1':
+                db.metadata.create_all(connection)
+                connection.exec_driver_sql(f'PRAGMA user_version={SCHEMA_VERSION}')
+            elif state != 'ready':
                 try:
                     username = normalize_username(app.config.get('RBAC_BOOTSTRAP_ADMIN_USERNAME'))
                     password = validate_password(app.config.get('RBAC_BOOTSTRAP_ADMIN_PASSWORD'))

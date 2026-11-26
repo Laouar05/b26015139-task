@@ -9,11 +9,11 @@ from sqlalchemy.exc import OperationalError
 from werkzeug.exceptions import HTTPException
 
 from api_common import ApiError, fields, invalid, json_body, valid_id
-from auth import init_auth, new_snapshot, permission_required, rate_limits, require_permissions, start_write
+from auth import init_auth, login_required, new_snapshot, permission_required, rate_limits, require_permissions, start_write
 from bootstrap import BootstrapError, initialize_database
 from config import Config, sqlite_url
-from llm import LLMError, chat_reply, decompose_task, recommend_tasks, validate_task_batch
-from models import Task, db, enable_sqlite_foreign_keys
+from llm import LLMError, _is_local_url, chat_reply, decompose_task, recommend_tasks, validate_task_batch
+from models import AIProvider, Task, db, enable_sqlite_foreign_keys
 from rbac import READ, WRITE, bp as admin_bp, get_task_or_404, task_missing, task_scope
 
 
@@ -79,15 +79,53 @@ def create_app(overrides=None):
     return app
 
 
-def begin_ai():
+def resolve_llm_config(app):
+    active = db.session.scalar(select(AIProvider).where(AIProvider.is_active.is_(True)).limit(1))
+    if active is not None:
+        return {
+            'LLM_PROVIDER_TYPE': active.provider_type,
+            'LLM_BASE_URL': active.base_url,
+            'LLM_API_KEY': active.api_key,
+            'LLM_MODEL': active.model,
+        }
+    return app.config
+
+
+def begin_ai(app):
     rate_limits().take((('ai-user', g.current_user.id), 10), (('ai-global',), 60))
+    llm_config = resolve_llm_config(app)
     db.session.remove()
+    return llm_config
 
 
 def register_routes(app):
     @app.get('/')
     def index():
         return render_template('index.html')
+
+    @app.get('/api/ai/active')
+    @login_required
+    def active_ai_provider():
+        active = db.session.scalar(select(AIProvider).where(AIProvider.is_active.is_(True)).limit(1))
+        if active is not None:
+            return jsonify(
+                configured=True,
+                source='database',
+                name=active.name,
+                provider_type=active.provider_type,
+                model=active.model,
+            )
+        base = (app.config.get('LLM_BASE_URL') or '').strip()
+        key = (app.config.get('LLM_API_KEY') or '').strip()
+        model = (app.config.get('LLM_MODEL') or '').strip()
+        configured = bool(base and model and (key or _is_local_url(base)))
+        return jsonify(
+            configured=configured,
+            source='env' if configured else 'none',
+            name='默认环境配置' if configured else '',
+            provider_type='openai' if configured else '',
+            model=model if configured else '',
+        )
 
     @app.post('/api/chat')
     @permission_required('ai:chat')
@@ -102,8 +140,8 @@ def register_routes(app):
                 raise invalid('任务 ID 无效。')
             task = get_task_or_404(task_id, g.current_user, 'read')
             context = dict(title=task.title, description=(task.description or '')[:4000], completed=task.completed)
-        begin_ai()
-        reply = chat_reply(app.config, messages, context)
+        llm_config = begin_ai(app)
+        reply = chat_reply(llm_config, messages, context)
         actor = new_snapshot('ai:chat', *READ) if context is not None else new_snapshot('ai:chat')
         if context is not None:
             get_task_or_404(task_id, actor, 'read')
@@ -126,8 +164,8 @@ def register_routes(app):
                  for task_id, title, description in rows]
         if not tasks:
             return jsonify(recommendations=[])
-        begin_ai()
-        recommendations = recommend_tasks(app.config, tasks, context, datetime.now().astimezone().isoformat(timespec='minutes'))
+        llm_config = begin_ai(app)
+        recommendations = recommend_tasks(llm_config, tasks, context, datetime.now().astimezone().isoformat(timespec='minutes'))
         actor = new_snapshot(*codes)
         ids = {task['id'] for task in tasks}
         recheck = task_scope(select(Task.id).where(Task.id.in_(ids)), actor, 'read', own_only=scope == 'own')
@@ -139,8 +177,8 @@ def register_routes(app):
     @permission_required('ai:decompose')
     def draft_tasks():
         goal = text_field(json_body('goal').get('goal'), 2000, '大任务目标', required=True)
-        begin_ai()
-        tasks = decompose_task(app.config, goal)
+        llm_config = begin_ai(app)
+        tasks = decompose_task(llm_config, goal)
         new_snapshot('ai:decompose')
         return jsonify(tasks=tasks)
 

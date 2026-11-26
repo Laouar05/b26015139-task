@@ -3,8 +3,11 @@ import json
 import re
 from http.client import HTTPException
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
+
+PROVIDER_TYPES = ("openai", "gemini")
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
 SYSTEM_PROMPT = """你是任务管理器的排序助手。根据当前时间、未完成任务和用户今天的情况，
@@ -28,18 +31,31 @@ class ModelListError(Exception):
     """Failure to discover available models."""
 
 
-def list_models(base_url, api_key):
+def _is_local_url(base_url):
+    url = urlsplit(base_url)
+    return url.hostname in LOCAL_HOSTS
+
+
+def list_models(base_url, api_key, provider_type="openai"):
     """Fetch distinct model IDs in the order advertised by the provider."""
+    provider_type = (provider_type or "openai").strip().lower()
+    if provider_type not in PROVIDER_TYPES:
+        raise ModelListError("不支持的接口协议类型。")
     try:
         url = urlsplit(base_url)
         if url.scheme not in ("http", "https") or not url.hostname or url.query or url.fragment:
             raise ModelListError("请检查 API 基础地址。")
 
-        request = Request(base_url.rstrip("/") + "/models", headers={"Accept": "application/json"})
+        endpoint = base_url.rstrip("/") + "/models"
+        request = Request(endpoint, headers={"Accept": "application/json"})
         # Avoid forwarding credentials if the service redirects the request.
-        request.add_unredirected_header("Authorization", f"Bearer {api_key}")
-        with urlopen(request, timeout=8) as response:
-            payload = json.loads(response.read(1024 * 1024))
+        if api_key:
+            if provider_type == "gemini":
+                request.add_unredirected_header("x-goog-api-key", api_key)
+            else:
+                request.add_unredirected_header("Authorization", f"Bearer {api_key}")
+        with urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read(2 * 1024 * 1024))
     except HTTPError as exc:
         if exc.code in (401, 403):
             raise ModelListError("模型列表请求未获授权，请检查 API 密钥和权限。") from exc
@@ -48,6 +64,28 @@ def list_models(base_url, api_key):
         raise ModelListError("无法连接模型列表接口，请检查地址或网络。") from exc
     except (ValueError, RecursionError) as exc:
         raise ModelListError("模型列表响应无法解析，请检查 API 基础地址。") from exc
+
+    if provider_type == "gemini":
+        models = payload.get("models") if isinstance(payload, dict) else None
+        if not isinstance(models, list):
+            raise ModelListError("Gemini 返回的模型列表格式不受支持。")
+        ids = {}
+        for model in models:
+            if not isinstance(model, dict):
+                continue
+            methods = model.get("supportedGenerationMethods")
+            if isinstance(methods, list) and "generateContent" not in methods:
+                continue
+            raw_name = model.get("name")
+            if isinstance(raw_name, str) and raw_name.strip():
+                model_id = raw_name.strip()
+                if model_id.startswith("models/"):
+                    model_id = model_id[len("models/"):]
+                if model_id and model_id.isprintable():
+                    ids[model_id] = None
+        if not ids:
+            raise ModelListError("Gemini 返回的可用对话模型列表为空。")
+        return list(ids)
 
     models = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(models, list):
@@ -62,23 +100,57 @@ def list_models(base_url, api_key):
     return list(ids)
 
 
-def _chat_text(config, messages, invalid_output_message):
-    base_url = config["LLM_BASE_URL"]
-    api_key = config["LLM_API_KEY"]
-    model = config["LLM_MODEL"]
-    if not all((base_url, api_key, model)):
-        raise LLMError("请先在服务端配置 LLM_BASE_URL、LLM_API_KEY 和 LLM_MODEL。", 503)
+def _gemini_payload(messages):
+    system_parts = []
+    contents = []
+    for entry in messages:
+        role = entry.get("role")
+        text = entry.get("content", "")
+        if role == "system":
+            system_parts.append({"text": text})
+        else:
+            contents.append({
+                "role": "model" if role == "assistant" else "user",
+                "parts": [{"text": text}],
+            })
+    payload = {"contents": contents}
+    if system_parts:
+        payload["systemInstruction"] = {"parts": system_parts}
+    return payload
 
-    payload = {"model": model, "messages": messages}
+
+def _chat_text(config, messages, invalid_output_message):
+    provider_type = (config.get("LLM_PROVIDER_TYPE") or "openai").strip().lower()
+    base_url = (config.get("LLM_BASE_URL") or "").strip()
+    api_key = (config.get("LLM_API_KEY") or "").strip()
+    model = (config.get("LLM_MODEL") or "").strip()
+    needs_key = not (provider_type == "openai" and base_url and _is_local_url(base_url))
+    if not base_url or not model or (needs_key and not api_key):
+        raise LLMError("请先在管理面板或服务端配置 AI 提供商、API 密钥和模型。", 503)
+    if provider_type not in PROVIDER_TYPES:
+        raise LLMError("当前 AI 提供商协议类型不受支持。", 503)
+
+    if provider_type == "gemini":
+        model_path = model[len("models/"):] if model.startswith("models/") else model
+        endpoint = f"{base_url.rstrip('/')}/models/{quote(model_path, safe='')}:generateContent"
+        payload = _gemini_payload(messages)
+        headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+    else:
+        endpoint = base_url.rstrip("/") + "/chat/completions"
+        payload = {"model": model, "messages": messages}
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
     try:
         request = Request(
-            base_url.rstrip("/") + "/chat/completions",
+            endpoint,
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            headers=headers,
             method="POST",
         )
         with urlopen(request, timeout=25) as response:
-            result = json.loads(response.read(256 * 1024))
+            result = json.loads(response.read(512 * 1024))
     except HTTPError as exc:
         if exc.code in (401, 403):
             raise LLMError("模型服务拒绝访问，请检查 API Key 和模型权限。") from exc
@@ -93,7 +165,11 @@ def _chat_text(config, messages, invalid_output_message):
         raise LLMError("模型服务响应无效，请检查地址或稍后重试。") from exc
 
     try:
-        content = result["choices"][0]["message"]["content"].strip()
+        if provider_type == "gemini":
+            parts = result["candidates"][0]["content"]["parts"]
+            content = "".join(part.get("text", "") for part in parts if isinstance(part, dict)).strip()
+        else:
+            content = result["choices"][0]["message"]["content"].strip()
         if not isinstance(content, str) or not content:
             raise ValueError("Missing reply text")
         content.encode("utf-8")

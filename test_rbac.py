@@ -8,7 +8,7 @@ from threading import Barrier, Event
 from unittest.mock import patch
 
 import app as task_app
-from bootstrap import BootstrapError, inspect_database
+from bootstrap import BootstrapError, SCHEMA_VERSION, inspect_database
 from models import db
 
 PASSWORD = 'test-only-pass-6789'
@@ -54,7 +54,7 @@ class DatabaseTests(unittest.TestCase):
         with closing(sqlite3.connect(self.path)) as conn:
             self.assertEqual(conn.execute('SELECT username FROM users').fetchall(), [('admin',)])
             self.assertEqual(conn.execute('SELECT count(*) FROM role_permissions').fetchone()[0], 16)
-            self.assertEqual(conn.execute('PRAGMA user_version').fetchone()[0], 1)
+            self.assertEqual(conn.execute('PRAGMA user_version').fetchone()[0], SCHEMA_VERSION)
 
     def test_legacy_fields_fk_and_backup_recovery(self):
         create_legacy(self.path)

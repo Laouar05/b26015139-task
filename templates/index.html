@@ -4,12 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>澄序 · 智能任务工作台</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link
-    href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;1,6..72,400&family=Noto+Sans+SC:wght@400;500;600;700&family=Noto+Serif+SC:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
-    rel="stylesheet"
-  />
   <script>
     (function () {
       try {
@@ -355,12 +349,15 @@
     <aside class="ai-studio" id="ai-studio" aria-label="AI 智能规划面板">
       <div class="studio-card">
         <div class="studio-card-head">
-          <div class="studio-badge">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M12 3l1.8 4.6L18.5 9l-4.7 1.4L12 15l-1.8-4.6L5.5 9l4.7-1.4L12 3z" />
-              <path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15z" />
-            </svg>
-            <span>AI 规划助手</span>
+          <div class="studio-badge-wrap">
+            <div class="studio-badge">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3l1.8 4.6L18.5 9l-4.7 1.4L12 15l-1.8-4.6L5.5 9l4.7-1.4L12 3z" />
+                <path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15z" />
+              </svg>
+              <span>AI 规划助手</span>
+            </div>
+            <span id="ai-active-chip" class="ai-active-chip" hidden></span>
           </div>
 
           <div class="segmented-tabs" role="tablist" aria-label="AI 功能切换">
@@ -661,8 +658,8 @@
           </svg>
         </span>
         <div class="drawer-heading-wrap">
-          <h2 id="admin-heading">用户与权限</h2>
-          <p class="drawer-subtitle">管理账号状态、角色分配与内置权限</p>
+          <h2 id="admin-heading">工作台管理</h2>
+          <p class="drawer-subtitle">管理用户角色与全局 AI 模型提供商</p>
         </div>
       </div>
       <button class="icon-close" type="button" data-dialog-close aria-label="关闭">
@@ -672,47 +669,123 @@
         </svg>
       </button>
     </div>
+    <div class="admin-tab-bar" role="tablist" aria-label="管理分类">
+      <button type="button" role="tab" id="admin-tab-users" class="seg-tab is-active" data-admin-tab="users" aria-selected="true">用户与角色</button>
+      <button type="button" role="tab" id="admin-tab-providers" class="seg-tab" data-admin-tab="providers" aria-selected="false">AI 提供商</button>
+    </div>
     <div class="drawer-body access-body">
       <p id="admin-feedback" class="status-banner" role="status"></p>
 
-      <section id="admin-users" class="admin-section" aria-label="用户">
-        <div class="admin-section-head">
-          <h3 class="admin-section-title">用户列表</h3>
-          <span id="admin-page" class="admin-page-pill"></span>
-        </div>
-        <form id="admin-search" class="access-actions admin-search-bar">
-          <input id="admin-query" class="field-input" type="search" aria-label="按用户名搜索" placeholder="搜索用户名…" maxlength="32" />
-          <button class="btn btn-subtle">搜索</button>
-        </form>
-        <ul id="admin-list" class="access-list"></ul>
-        <div class="access-actions admin-pagination">
-          <button type="button" id="admin-prev" class="btn btn-subtle btn-sm">上一页</button>
-          <button type="button" id="admin-next" class="btn btn-subtle btn-sm">下一页</button>
-        </div>
-
-        <form id="admin-edit" class="admin-edit-card" hidden>
-          <div class="admin-edit-head">
-            <div>
-              <span class="admin-edit-kicker">正在编辑用户</span>
-              <h3 id="admin-target" class="admin-edit-name"></h3>
-            </div>
-            <button type="button" id="admin-toggle-active" class="btn btn-subtle btn-sm"></button>
+      <div id="admin-pane-users" class="admin-pane">
+        <section id="admin-users" class="admin-section" aria-label="用户">
+          <div class="admin-section-head">
+            <h3 class="admin-section-title">用户列表</h3>
+            <span id="admin-page" class="admin-page-pill"></span>
           </div>
-          <fieldset id="admin-role-fields" class="admin-role-fields">
-            <legend class="field-label">角色分配（整体替换）</legend>
-            <div id="admin-role-options" class="role-option-grid"></div>
-            <p class="admin-role-hint">多角色权限会取并集；要将账号设为纯只读，请仅勾选「只读访客」。</p>
-            <button type="submit" id="admin-save-roles" class="btn btn-ink btn-full">保存角色变更</button>
-          </fieldset>
-        </form>
-      </section>
+          <form id="admin-search" class="access-actions admin-search-bar">
+            <input id="admin-query" class="field-input" type="search" aria-label="按用户名搜索" placeholder="搜索用户名…" maxlength="32" />
+            <button class="btn btn-subtle">搜索</button>
+          </form>
+          <ul id="admin-list" class="access-list"></ul>
+          <div class="access-actions admin-pagination">
+            <button type="button" id="admin-prev" class="btn btn-subtle btn-sm">上一页</button>
+            <button type="button" id="admin-next" class="btn btn-subtle btn-sm">下一页</button>
+          </div>
 
-      <section id="admin-role-catalog" class="admin-section" aria-label="角色权限">
-        <div class="admin-section-head">
-          <h3 class="admin-section-title">内置角色与权限说明</h3>
-        </div>
-        <div id="admin-roles" class="role-catalog-list"></div>
-      </section>
+          <form id="admin-edit" class="admin-edit-card" hidden>
+            <div class="admin-edit-head">
+              <div>
+                <span class="admin-edit-kicker">正在编辑用户</span>
+                <h3 id="admin-target" class="admin-edit-name"></h3>
+              </div>
+              <button type="button" id="admin-toggle-active" class="btn btn-subtle btn-sm"></button>
+            </div>
+            <fieldset id="admin-role-fields" class="admin-role-fields">
+              <legend class="field-label">角色分配（整体替换）</legend>
+              <div id="admin-role-options" class="role-option-grid"></div>
+              <p class="admin-role-hint">多角色权限会取并集；要将账号设为纯只读，请仅勾选「只读访客」。</p>
+              <button type="submit" id="admin-save-roles" class="btn btn-ink btn-full">保存角色变更</button>
+            </fieldset>
+          </form>
+        </section>
+
+        <section id="admin-role-catalog" class="admin-section" aria-label="角色权限">
+          <div class="admin-section-head">
+            <h3 class="admin-section-title">内置角色与权限说明</h3>
+          </div>
+          <div id="admin-roles" class="role-catalog-list"></div>
+        </section>
+      </div>
+
+      <div id="admin-pane-providers" class="admin-pane" hidden>
+        <div id="provider-active-banner" class="provider-active-banner"></div>
+
+        <section class="admin-section" aria-label="已保存的 AI 提供商">
+          <div class="admin-section-head">
+            <h3 class="admin-section-title">已配置提供商</h3>
+            <button type="button" id="provider-new-btn" class="btn btn-subtle btn-sm">+ 新增提供商</button>
+          </div>
+          <ul id="provider-list" class="provider-list"></ul>
+        </section>
+
+        <section class="admin-section" aria-label="添加或编辑 AI 提供商">
+          <div class="admin-section-head">
+            <h3 id="provider-form-title" class="admin-section-title">添加 AI 提供商</h3>
+            <button type="button" id="provider-cancel-edit" class="btn btn-text btn-sm" hidden>取消编辑</button>
+          </div>
+
+          <div class="provider-presets" aria-label="常用厂商一键预设">
+            <button type="button" class="preset-chip" data-provider-preset="deepseek">DeepSeek</button>
+            <button type="button" class="preset-chip" data-provider-preset="gemini">Google Gemini</button>
+            <button type="button" class="preset-chip" data-provider-preset="openai">OpenAI</button>
+            <button type="button" class="preset-chip" data-provider-preset="siliconflow">硅基流动</button>
+            <button type="button" class="preset-chip" data-provider-preset="qwen">通义千问</button>
+            <button type="button" class="preset-chip" data-provider-preset="ollama">本地 Ollama</button>
+            <button type="button" class="preset-chip" data-provider-preset="custom">自定义</button>
+          </div>
+
+          <form id="provider-form" class="provider-form">
+            <div class="form-group">
+              <label for="provider-name" class="field-label">显示名称</label>
+              <input id="provider-name" class="field-input" maxlength="80" placeholder="例如：DeepSeek 官方 / Gemini Flash" required />
+            </div>
+
+            <div class="form-group">
+              <label for="provider-type" class="field-label">接口协议</label>
+              <select id="provider-type" class="field-input">
+                <option value="openai">OpenAI 兼容接口（/chat/completions）</option>
+                <option value="gemini">Google Gemini 原生接口（:generateContent）</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="provider-url" class="field-label">API 基础地址</label>
+              <input id="provider-url" class="field-input" type="url" maxlength="500" placeholder="例如：https://api.deepseek.com" required />
+            </div>
+
+            <div class="form-group">
+              <label for="provider-key" class="field-label">API 密钥</label>
+              <input id="provider-key" class="field-input" type="password" autocomplete="off" maxlength="500" placeholder="填写 API Key（本机 Ollama 可留空）" />
+            </div>
+
+            <div class="form-group">
+              <label for="provider-model" class="field-label">模型名称</label>
+              <div class="access-actions">
+                <input id="provider-model" class="field-input" maxlength="120" placeholder="例如：deepseek-chat / gemini-2.5-flash" required />
+                <button type="button" id="provider-fetch-models" class="btn btn-subtle btn-sm">拉取模型</button>
+              </div>
+              <select id="provider-model-select" class="field-input" hidden aria-label="从拉取结果中选择模型"></select>
+            </div>
+
+            <label class="provider-activate-check">
+              <input type="checkbox" id="provider-activate" checked />
+              <span>保存后立即设为当前启用</span>
+            </label>
+
+            <button type="submit" id="provider-save" class="btn btn-ink btn-full">保存提供商</button>
+          </form>
+        </section>
+      </div>
     </div>
   </dialog>
 
