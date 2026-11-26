@@ -9,6 +9,24 @@ const authDialog = access('auth-dialog');
 const adminDialog = access('admin-dialog');
 const transferDialog = access('transfer-dialog');
 const roleNames = { admin: '管理员', member: '普通成员', viewer: '只读访客' };
+const permissionNames = {
+  'task:read': '查看本人任务',
+  'task:write': '编辑/新增/删除本人任务',
+  'task:read_all': '查看全库任务',
+  'task:write_all': '修改/删除他人任务',
+  'task:assign': '转交任务归属',
+  'ai:chat': 'AI 对话助手',
+  'ai:recommend': 'AI 今日建议',
+  'ai:decompose': 'AI 任务拆解',
+  'user:manage': '用户管理',
+  'role:manage': '角色与权限管理',
+};
+function createRolePill(code) {
+  const pill = document.createElement('span');
+  pill.className = `role-pill${['admin', 'member', 'viewer'].includes(code) ? ` is-${code}` : ''}`;
+  pill.textContent = roleNames[code] || code;
+  return pill;
+}
 const hasPermissions = (...codes) => Boolean(authState.user) && codes.every((code) => authState.permissions.has(code));
 const mayWriteTask = (task) => hasPermissions('task:read', 'task:write') &&
   (task.owner_id === authState.user.id || hasPermissions('task:read_all', 'task:write_all'));
@@ -134,9 +152,21 @@ function renderPermissions() {
   const chat = hasPermissions('ai:chat');
   const recommend = canUseTab('recommend');
   const decompose = canUseTab('breakdown');
-  access('account-state').textContent = signedIn
-    ? `${authState.user.username}${authState.roles.length ? ' · ' + authState.roles.map((code) => roleNames[code] || code).join(' / ') : ''}${read && !write ? ' · 仅能查看，不可修改' : ''}`
-    : '登录后查看任务';
+  access('account-avatar').textContent = signedIn ? authState.user.username.slice(0, 1).toUpperCase() : '?';
+  access('account-state').textContent = signedIn ? authState.user.username : '登录后查看任务';
+  const badgeBox = access('account-role-badges');
+  if (signedIn) {
+    const pills = authState.roles.map(createRolePill);
+    if (read && !write) {
+      const note = document.createElement('span');
+      note.className = 'role-pill is-readonly-note';
+      note.textContent = '仅能查看，不可修改';
+      pills.push(note);
+    }
+    badgeBox.replaceChildren(...pills);
+  } else {
+    badgeBox.replaceChildren();
+  }
   access('auth-open').hidden = signedIn;
   access('auth-logout').hidden = !signedIn;
   access('admin-open').hidden = !hasPermissions('role:manage') && !hasPermissions('user:manage');
@@ -189,14 +219,26 @@ function refreshIdentity() {
 }
 
 let authMode = 'login';
+function resetPasswordVisibility() {
+  const pw = access('auth-password');
+  const btn = access('auth-toggle-pw');
+  pw.type = 'password';
+  if (btn) {
+    btn.classList.remove('is-visible');
+    btn.setAttribute('aria-label', '显示密码');
+  }
+}
+
 function setAuthMode(mode) {
   authMode = mode;
   const registering = mode === 'register';
   access('auth-heading').textContent = registering ? '注册澄序账号' : '登录澄序';
+  access('auth-subtitle').textContent = registering ? '创建普通成员账号，开启高效任务管理' : '进入你的智能任务工作台';
   access('auth-submit').textContent = registering ? '注册' : '登录';
-  access('auth-switch').textContent = registering ? '返回登录' : '注册账号';
+  access('auth-switch').textContent = registering ? '已有账号？返回登录' : '没有账号？去注册';
   access('auth-password').autocomplete = registering ? 'new-password' : 'current-password';
   access('auth-password').value = '';
+  resetPasswordVisibility();
   access('auth-feedback').textContent = '';
 }
 
@@ -212,7 +254,24 @@ function openAuth() {
 document.querySelectorAll('[data-dialog-close]').forEach((button) => {
   button.addEventListener('click', () => button.closest('dialog').close());
 });
-authDialog.addEventListener('close', () => { access('auth-password').value = ''; });
+[adminDialog, transferDialog].forEach((dialog) => {
+  dialog.addEventListener('click', (event) => {
+    if (event.target === dialog) dialog.close();
+  });
+});
+access('auth-toggle-pw')?.addEventListener('click', () => {
+  const pw = access('auth-password');
+  const btn = access('auth-toggle-pw');
+  const showing = pw.type === 'text';
+  pw.type = showing ? 'password' : 'text';
+  btn.classList.toggle('is-visible', !showing);
+  btn.setAttribute('aria-label', showing ? '显示密码' : '隐藏密码');
+  pw.focus();
+});
+authDialog.addEventListener('close', () => {
+  access('auth-password').value = '';
+  resetPasswordVisibility();
+});
 access('auth-open').addEventListener('click', openAuth);
 access('auth-switch').addEventListener('click', () => {
   if (registrationEnabled) setAuthMode(authMode === 'login' ? 'register' : 'login');
@@ -273,13 +332,40 @@ function showRoleCatalog(roles) {
   roleCatalog = roles;
   access('admin-roles').replaceChildren(...roles.map((role) => {
     const box = document.createElement('details');
+    box.className = 'role-catalog-card';
     const heading = document.createElement('summary');
-    heading.textContent = role.name;
+    const left = document.createElement('span');
+    left.className = 'role-summary-left';
+    left.append(createRolePill(role.code));
+    const count = document.createElement('span');
+    count.className = 'role-summary-count';
+    count.textContent = `${role.permissions.length} 项权限`;
+    heading.append(left, count);
+
+    const body = document.createElement('div');
+    body.className = 'role-catalog-body';
     const description = document.createElement('p');
-    description.textContent = `${role.description}：${role.permissions.join('、')}`;
-    box.append(heading, description);
+    description.className = 'role-catalog-desc';
+    description.textContent = role.description;
+    const tags = document.createElement('div');
+    tags.className = 'perm-tag-list';
+    tags.append(...role.permissions.map((code) => {
+      const tag = document.createElement('span');
+      tag.className = 'perm-tag';
+      tag.textContent = permissionNames[code] || code;
+      tag.title = code;
+      return tag;
+    }));
+    body.append(description, tags);
+    box.append(heading, body);
     return box;
   }));
+}
+
+function syncAdminListSelection() {
+  access('admin-list').querySelectorAll('.admin-user-btn').forEach((btn) => {
+    btn.classList.toggle('is-selected', Number(btn.dataset.userId) === adminTarget?.id);
+  });
 }
 
 async function selectAdminUser(id) {
@@ -289,6 +375,7 @@ async function selectAdminUser(id) {
     const user = await request(`/api/admin/users/${id}`);
     if (!adminDialog.open || version !== adminDetailVersion) return;
     adminTarget = user;
+    syncAdminListSelection();
     const own = id === authState.user.id;
     access('admin-edit').hidden = false;
     access('admin-target').textContent = `${user.username}${own ? '（本人）' : ''}`;
@@ -296,11 +383,14 @@ async function selectAdminUser(id) {
     access('admin-role-fields').disabled = own;
     access('admin-role-options').replaceChildren(...roleCatalog.map((role) => {
       const label = document.createElement('label');
+      label.className = 'role-option-card';
       const check = document.createElement('input');
       check.type = 'checkbox';
       check.value = role.code;
       check.checked = user.roles.includes(role.code);
-      label.append(check, ` ${role.name}`);
+      const name = document.createElement('span');
+      name.textContent = role.name;
+      label.append(check, name);
       return label;
     }));
     const toggle = access('admin-toggle-active');
@@ -325,8 +415,30 @@ async function loadAdminUsers(page = 1) {
       const item = document.createElement('li');
       const button = document.createElement('button');
       button.type = 'button';
-      button.className = 'btn btn-subtle';
-      button.textContent = `${user.username} · ${user.roles.map((code) => roleNames[code] || code).join(' / ')} · ${user.is_active ? '有效' : '已禁用'}`;
+      button.className = `admin-user-btn${adminTarget?.id === user.id ? ' is-selected' : ''}`;
+      button.dataset.userId = String(user.id);
+
+      const main = document.createElement('span');
+      main.className = 'admin-user-main';
+      const avatar = document.createElement('span');
+      avatar.className = 'admin-user-avatar';
+      avatar.textContent = user.username.slice(0, 1).toUpperCase();
+      const info = document.createElement('span');
+      info.className = 'admin-user-info';
+      const name = document.createElement('span');
+      name.className = 'admin-user-name';
+      name.textContent = user.username;
+      const roles = document.createElement('span');
+      roles.className = 'admin-user-roles';
+      roles.append(...user.roles.map(createRolePill));
+      info.append(name, roles);
+      main.append(avatar, info);
+
+      const status = document.createElement('span');
+      status.className = `user-status-badge${user.is_active ? '' : ' is-disabled'}`;
+      status.textContent = user.is_active ? '有效' : '已禁用';
+
+      button.append(main, status);
       button.addEventListener('click', () => selectAdminUser(user.id));
       item.append(button);
       return item;

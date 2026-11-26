@@ -498,8 +498,17 @@ function buildTaskItem(task) {
   if (hasPermissions('task:assign', 'task:read', 'task:write', 'task:read_all', 'task:write_all', 'user:manage')) {
     const transfer = document.createElement('button');
     transfer.type = 'button';
-    transfer.className = 'link-btn';
-    transfer.textContent = '转交';
+    transfer.className = 'task-action-transfer';
+    transfer.title = '将此任务转交给其他用户';
+    transfer.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline points="17 1 21 5 17 9" />
+        <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+        <polyline points="7 23 3 19 7 15" />
+        <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+      </svg>
+      <span>转交</span>
+    `;
     transfer.addEventListener('click', () => openTransfer(task));
     li.querySelector('.task-actions').append(transfer);
   }

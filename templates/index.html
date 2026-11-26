@@ -242,11 +242,31 @@
         </div>
       </header>
 
-      <div class="account-strip" aria-label="账号">
-        <span id="account-state" role="status">正在检查登录状态…</span>
-        <button type="button" id="auth-open" class="btn btn-subtle" hidden>登录</button>
-        <button type="button" id="admin-open" class="btn btn-subtle" hidden>管理</button>
-        <button type="button" id="auth-logout" class="btn btn-text" hidden>退出所有设备</button>
+      <div class="account-strip" id="account-strip" aria-label="账号">
+        <div class="account-identity">
+          <span id="account-avatar" class="account-avatar" aria-hidden="true">?</span>
+          <div class="account-copy">
+            <span id="account-state" class="account-state" role="status">正在检查登录状态…</span>
+            <span id="account-role-badges" class="account-role-badges"></span>
+          </div>
+        </div>
+        <div class="account-actions">
+          <button type="button" id="auth-open" class="btn btn-ink btn-sm" hidden>登录 / 注册</button>
+          <button type="button" id="admin-open" class="tool-pill admin-entry-btn" hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            </svg>
+            <span>管理</span>
+          </button>
+          <button type="button" id="auth-logout" class="btn btn-text btn-sm" title="退出当前账号在所有设备上的登录状态" hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+            <span>退出所有设备</span>
+          </button>
+        </div>
       </div>
 
       <!-- Mobile Filter Pills (shown when sidebar is collapsed) -->
@@ -581,38 +601,152 @@
     </form>
   </aside>
 
-  <dialog id="auth-dialog" class="access-dialog modal-card" aria-labelledby="auth-heading">
-    <div class="modal-head"><h2 id="auth-heading">登录澄序</h2><button class="icon-close" type="button" data-dialog-close aria-label="关闭">×</button></div>
-    <form id="auth-form" class="modal-body">
-      <label class="field-label">用户名<input id="auth-username" class="field-input" autocomplete="username" minlength="3" maxlength="32" required autofocus /></label>
-      <label class="field-label">密码<input id="auth-password" class="field-input" type="password" autocomplete="current-password" maxlength="128" required /></label>
+  <!-- Auth Dialog (Login / Register) -->
+  <dialog id="auth-dialog" class="access-dialog auth-modal modal-card" aria-labelledby="auth-heading">
+    <div class="auth-modal-head">
+      <div class="auth-brand-row">
+        <span class="brand-emblem auth-emblem" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12.5l4.2 4.2L19 7" />
+          </svg>
+        </span>
+        <div>
+          <h2 id="auth-heading" class="auth-title">登录澄序</h2>
+          <p id="auth-subtitle" class="auth-subtitle">进入你的智能任务工作台</p>
+        </div>
+      </div>
+      <button class="icon-close" type="button" data-dialog-close aria-label="关闭">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+    </div>
+    <form id="auth-form" class="modal-body auth-form">
+      <div class="form-group">
+        <label for="auth-username" class="field-label">用户名</label>
+        <input id="auth-username" class="field-input" autocomplete="username" minlength="3" maxlength="32" placeholder="3–32 位字母、数字或下划线" required autofocus />
+      </div>
+      <div class="form-group">
+        <label for="auth-password" class="field-label">密码</label>
+        <div class="password-field">
+          <input id="auth-password" class="field-input" type="password" autocomplete="current-password" maxlength="128" placeholder="请输入密码（注册须至少 8 位）" required />
+          <button type="button" id="auth-toggle-pw" class="password-toggle" aria-label="显示密码" title="显示或隐藏密码">
+            <svg class="icon-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+            <svg class="icon-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+              <line x1="1" y1="1" x2="23" y2="23" />
+            </svg>
+          </button>
+        </div>
+      </div>
       <p id="auth-feedback" class="status-banner" role="status"></p>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-text" id="auth-switch" hidden>注册账号</button>
-        <button type="submit" class="btn btn-ink" id="auth-submit">登录</button>
+      <div class="modal-footer auth-footer">
+        <button type="button" class="btn btn-text" id="auth-switch" hidden>没有账号？去注册</button>
+        <button type="submit" class="btn btn-ink auth-submit-btn" id="auth-submit">登录</button>
       </div>
     </form>
   </dialog>
+
+  <!-- Slide-Over Admin Drawer -->
   <dialog id="admin-dialog" class="access-dialog access-drawer" aria-labelledby="admin-heading">
-    <div class="drawer-header"><h2 id="admin-heading">用户与权限</h2><button class="icon-close" type="button" data-dialog-close aria-label="关闭">×</button></div>
+    <div class="drawer-header">
+      <div class="drawer-title-group">
+        <span class="drawer-sparkle is-admin" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          </svg>
+        </span>
+        <div class="drawer-heading-wrap">
+          <h2 id="admin-heading">用户与权限</h2>
+          <p class="drawer-subtitle">管理账号状态、角色分配与内置权限</p>
+        </div>
+      </div>
+      <button class="icon-close" type="button" data-dialog-close aria-label="关闭">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+    </div>
     <div class="drawer-body access-body">
       <p id="admin-feedback" class="status-banner" role="status"></p>
-      <section id="admin-users" aria-label="用户">
-        <h3>用户</h3>
-        <form id="admin-search" class="access-actions"><input id="admin-query" class="field-input" type="search" aria-label="按用户名搜索" placeholder="搜索用户名" maxlength="32" /><button class="btn btn-subtle">搜索</button></form>
+
+      <section id="admin-users" class="admin-section" aria-label="用户">
+        <div class="admin-section-head">
+          <h3 class="admin-section-title">用户列表</h3>
+          <span id="admin-page" class="admin-page-pill"></span>
+        </div>
+        <form id="admin-search" class="access-actions admin-search-bar">
+          <input id="admin-query" class="field-input" type="search" aria-label="按用户名搜索" placeholder="搜索用户名…" maxlength="32" />
+          <button class="btn btn-subtle">搜索</button>
+        </form>
         <ul id="admin-list" class="access-list"></ul>
-        <div class="access-actions"><button type="button" id="admin-prev" class="btn btn-subtle">上一页</button><span id="admin-page"></span><button type="button" id="admin-next" class="btn btn-subtle">下一页</button></div>
-        <form id="admin-edit" hidden><h3 id="admin-target"></h3><fieldset id="admin-role-fields"><legend>替换角色</legend><div id="admin-role-options"></div><p>要设为只读，请仅选择「只读访客」。权限会合并。</p><button type="submit" id="admin-save-roles" class="btn btn-ink">保存角色</button></fieldset><button type="button" id="admin-toggle-active" class="btn btn-subtle"></button></form>
+        <div class="access-actions admin-pagination">
+          <button type="button" id="admin-prev" class="btn btn-subtle btn-sm">上一页</button>
+          <button type="button" id="admin-next" class="btn btn-subtle btn-sm">下一页</button>
+        </div>
+
+        <form id="admin-edit" class="admin-edit-card" hidden>
+          <div class="admin-edit-head">
+            <div>
+              <span class="admin-edit-kicker">正在编辑用户</span>
+              <h3 id="admin-target" class="admin-edit-name"></h3>
+            </div>
+            <button type="button" id="admin-toggle-active" class="btn btn-subtle btn-sm"></button>
+          </div>
+          <fieldset id="admin-role-fields" class="admin-role-fields">
+            <legend class="field-label">角色分配（整体替换）</legend>
+            <div id="admin-role-options" class="role-option-grid"></div>
+            <p class="admin-role-hint">多角色权限会取并集；要将账号设为纯只读，请仅勾选「只读访客」。</p>
+            <button type="submit" id="admin-save-roles" class="btn btn-ink btn-full">保存角色变更</button>
+          </fieldset>
+        </form>
       </section>
-      <section id="admin-role-catalog" aria-label="角色权限"><h3>角色权限</h3><div id="admin-roles"></div></section>
+
+      <section id="admin-role-catalog" class="admin-section" aria-label="角色权限">
+        <div class="admin-section-head">
+          <h3 class="admin-section-title">内置角色与权限说明</h3>
+        </div>
+        <div id="admin-roles" class="role-catalog-list"></div>
+      </section>
     </div>
   </dialog>
+
+  <!-- Transfer Task Dialog -->
   <dialog id="transfer-dialog" class="access-dialog modal-card" aria-labelledby="transfer-heading">
-    <div class="modal-head"><h2 id="transfer-heading">转交任务</h2><button class="icon-close" type="button" data-dialog-close aria-label="关闭">×</button></div>
+    <div class="modal-head">
+      <h2 id="transfer-heading">转交任务</h2>
+      <button class="icon-close" type="button" data-dialog-close aria-label="关闭">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+    </div>
     <div class="modal-body">
-      <p id="transfer-task-name"></p>
-      <form id="transfer-search" class="access-actions"><input id="transfer-query" class="field-input" type="search" aria-label="按用户名搜索" placeholder="输入目标用户名" maxlength="32" autofocus /><button class="btn btn-subtle">搜索</button></form>
-      <form id="transfer-form"><label class="field-label">有效用户<select id="transfer-user" class="field-input" required></select></label><p id="transfer-feedback" class="status-banner" role="status"></p><button type="submit" id="transfer-submit" class="btn btn-ink" disabled>确认转交</button></form>
+      <div class="transfer-task-preview">
+        <span class="transfer-preview-label">待转交任务</span>
+        <p id="transfer-task-name" class="transfer-preview-title"></p>
+      </div>
+      <form id="transfer-search" class="access-actions">
+        <input id="transfer-query" class="field-input" type="search" aria-label="按用户名搜索" placeholder="搜索目标用户名…" maxlength="32" autofocus />
+        <button class="btn btn-subtle">搜索</button>
+      </form>
+      <form id="transfer-form" class="transfer-form">
+        <div class="form-group">
+          <label for="transfer-user" class="field-label">选择接收人（仅显示有效账号）</label>
+          <select id="transfer-user" class="field-input" required></select>
+        </div>
+        <p id="transfer-feedback" class="status-banner" role="status"></p>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-subtle" data-dialog-close>取消</button>
+          <button type="submit" id="transfer-submit" class="btn btn-ink" disabled>确认转交</button>
+        </div>
+      </form>
     </div>
   </dialog>
 
